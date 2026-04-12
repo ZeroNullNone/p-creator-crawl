@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patreon Claw</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;1,7..72,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:            oklch(13% 0.008 30);
+      --bg-surface:    oklch(18% 0.010 30);
+      --bg-elevated:   oklch(23% 0.013 30);
+      --bg-hover:      oklch(27% 0.016 30);
+      --border:        oklch(30% 0.015 30);
+      --border-subtle: oklch(22% 0.012 30);
+
+      --text-1: oklch(91% 0.008 30);
+      --text-2: oklch(66% 0.010 30);
+      --text-3: oklch(52% 0.010 30);
+
+      --accent:      oklch(65% 0.18 35);
+      --accent-h:    oklch(69% 0.20 35);
+      --accent-dim:  oklch(58% 0.14 35);
+      --accent-bg:   oklch(20% 0.045 35);
+      --accent-bg2:  oklch(24% 0.055 35);
+
+      --green:        oklch(70% 0.15 145);
+      --green-bg:     oklch(18% 0.04 145);
+      --green-border: oklch(40% 0.08 145);
+      --amber:        oklch(72% 0.14 75);
+      --amber-bg:     oklch(18% 0.04 75);
+      --amber-border: oklch(40% 0.08 75);
+      --red:          oklch(65% 0.18 15);
+      --red-bg:       oklch(18% 0.04 15);
+      --blue:         oklch(68% 0.14 255);
+      --blue-bg:      oklch(18% 0.04 255);
+      --blue-border:  oklch(35% 0.07 255);
+
+      --font-ui:   'Barlow', system-ui, sans-serif;
+      --font-read: 'Literata', Georgia, serif;
+      --font-mono: 'Courier New', ui-monospace, monospace;
+
+      --shadow-sm: 0 1px 3px oklch(0% 0 0 / 0.35);
+
+      --r:    6px;
+      --r-lg: 10px;
+      --header-h: 48px;
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text-1);
+      font-family: var(--font-ui);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    :focus-visible {
+      outline: 2px solid var(--accent-dim);
+      outline-offset: 2px;
+      border-radius: 2px;
+    }
+    /* Inputs show focus via border-color — suppress generic ring */
+    .url-input:focus-visible,
+    .cookie-textarea:focus-visible,
+    .raw-md:focus-visible { outline: none; }
+
+    /* ── Header ───────────────────────────────── */
+    .app-header {
+      height: var(--header-h);
+      display: flex;
+      align-items: center;
+      padding: 0 20px;
+      gap: 16px;
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-subtle);
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.01em;
+      user-select: none;
+    }
+    .brand-icon svg { display: block; }
+
+    .app-tabs {
+      margin-left: auto;
+      display: flex;
+      gap: 2px;
+      background: var(--bg);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--r);
+      padding: 3px;
+    }
+    .app-tab {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-family: var(--font-ui);
+      font-size: 13px;
+      font-weight: 500;
+      padding: 7px 16px;
+      min-height: 36px;
+      border-radius: 4px;
+      color: var(--text-3);
+      transition: color 0.15s, background 0.15s;
+    }
+    .app-tab:hover { color: var(--text-2); background: var(--bg-elevated); }
+    .app-tab.active {
+      background: var(--bg-surface);
+      color: var(--text-1);
+      box-shadow: var(--shadow-sm);
+    }
+
+    /* ── Tab panes ────────────────────────────── */
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    /* ── Claw tab ─────────────────────────────── */
+    .claw-layout {
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 32px 20px 64px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+
+    .status-banner {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      padding: 10px 14px;
+      border-radius: var(--r);
+      border: 1px solid var(--border-subtle);
+      background: var(--bg-surface);
+      font-size: 13px;
+      color: var(--text-2);
+      transition: background 0.25s, border-color 0.25s, color 0.25s;
+    }
+    .status-banner.s-cookie { background: var(--blue-bg);  border-color: var(--blue-border);  color: var(--blue); }
+    .status-banner.s-warn   { background: var(--amber-bg); border-color: var(--amber-border); color: var(--amber); }
+    .banner-icon {
+      width: 36px; height: 36px; flex-shrink: 0;
+      border-radius: var(--r);
+      background: var(--bg-elevated);
+      border: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .banner-title { font-weight: 600; line-height: 1.3; }
+    .banner-hint  { margin-top: 3px; font-size: 12px; opacity: 0.8; }
+    .banner-spin  { animation: spin 1s linear infinite; transform-box: fill-box; transform-origin: center; }
+
+    .panel {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--r-lg);
+      padding: 20px;
+    }
+    .panel-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .panel-label {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-3);
+    }
+    .panel-sub { margin-top: 3px; font-size: 12px; color: var(--text-3); }
+
+    .link-btn {
+      background: none; border: none; cursor: pointer;
+      font-family: var(--font-ui); font-size: 12px;
+      color: var(--accent); padding: 4px 6px;
+      min-height: 32px; display: inline-flex; align-items: center;
+      transition: color 0.15s;
+    }
+    .link-btn:hover { color: var(--accent-h); }
+
+    .cookie-steps {
+      margin-top: 12px;
+      padding: 12px;
+      background: var(--bg);
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--r);
+      font-size: 12px;
+      color: var(--text-2);
+      line-height: 1.7;
+      list-style: none;
+      counter-reset: s;
+    }
+    .cookie-steps li { counter-increment: s; padding-left: 20px; position: relative; }
+    .cookie-steps li::before {
+      content: counter(s);
+      position: absolute; left: 0;
+      font-weight: 600; color: var(--text-3);
+    }
+    .cookie-steps li + li { margin-top: 3px; }
+    .cookie-steps strong { color: var(--text-1); font-weight: 500; }
+
+    .cookie-textarea {
+      display: block; width: 100%; margin-top: 10px;
+      padding: 10px 12px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--r);
+      color: var(--text-1); font-family: var(--font-mono);
+      font-size: 11px; resize: vertical; min-height: 80px; outline: none;
+      transition: border-color 0.15s;
+    }
+    .cookie-textarea::placeholder { color: var(--text-3); }
+    .cookie-textarea:focus { border-color: var(--accent-dim); }
+
+    .input-row { display: flex; gap: 8px; margin-top: 10px; }
+    .url-input {
+      flex: 1; padding: 9px 14px;
+      background: var(--bg); border: 1px solid var(--border);
+      border-radius: var(--r);
+      color: var(--text-1); font-family: var(--font-ui); font-size: 14px;
+      outline: none; transition: border-color 0.15s;
+    }
+    .url-input::placeholder { color: var(--text-3); }
+    .url-input:focus { border-color: var(--accent-dim); }
+
+    .btn-primary {
+      padding: 9px 20px;
+      background: var(--accent);
+      color: var(--bg);
+      font-family: var(--font-ui); font-weight: 600; font-size: 14px;
+      border: none; border-radius: var(--r);
+      cursor: pointer; flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .btn-primary:hover:not(:disabled) { background: var(--accent-h); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-ghost {
+      padding: 7px 14px;
+      background: var(--bg-elevated);
+      color: var(--text-2);
+      font-family: var(--font-ui); font-weight: 500; font-size: 13px;
+      border: 1px solid var(--border); border-radius: var(--r);
+      cursor: pointer; text-decoration: none;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: background 0.15s, color 0.15s;
+    }
+    .btn-ghost:hover { background: var(--bg-hover); color: var(--text-1); }
+
+    .scrape-status { margin-top: 8px; font-size: 13px; color: var(--text-2); }
+    .scrape-status.is-error { color: var(--red); }
+
+    .result-meta {
+      display: flex; align-items: center;
+      justify-content: space-between; gap: 12px;
+      margin-bottom: 16px;
+    }
+    .result-filename { font-family: var(--font-mono); font-size: 12px; color: var(--text-2); }
+    .result-filename span {
+      display: block; margin-bottom: 2px;
+      font-family: var(--font-ui); font-size: 11px;
+      text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3);
+    }
+
+    .result-tabs {
+      display: flex; gap: 4px;
+      padding-bottom: 12px; margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    .result-tab {
+      background: none; border: none; cursor: pointer;
+      font-family: var(--font-ui); font-size: 13px; font-weight: 500;
+      padding: 7px 12px; border-radius: var(--r);
+      min-height: 32px;
+      color: var(--text-3);
+      transition: background 0.15s, color 0.15s;
+    }
+    .result-tab:hover { color: var(--text-2); background: var(--bg-elevated); }
+    .result-tab.active { background: var(--accent-bg); color: var(--accent); }
+
+    /* ── Markdown styles (shared) ─────────────── */
+    .md-body {
+      font-family: var(--font-read);
+      font-size: 16px;
+      line-height: 1.85;
+      color: var(--text-1);
+      text-align: left;
+    }
+    .md-body h1 { font-size: 1.6rem;  font-weight: 600; margin: 1.4rem 0 0.6rem; line-height: 1.2; }
+    .md-body h2 { font-size: 1.25rem; font-weight: 600; margin: 1.2rem 0 0.5rem; line-height: 1.3; }
+    .md-body h3 { font-size: 1.05rem; font-weight: 600; margin: 1rem 0 0.4rem; }
+    .md-body p  { margin-bottom: 1rem; }
+    .md-body img { max-width: 100%; border-radius: var(--r); margin: 0.5rem 0; }
+    .md-body a  {
+      color: var(--accent); text-decoration: underline;
+      text-underline-offset: 3px; transition: color 0.15s;
+    }
+    .md-body a:hover { color: var(--accent-h); }
+    .md-body blockquote {
+      background: var(--accent-bg);
+      padding: 12px 16px;
+      border-radius: var(--r);
+      color: var(--text-2);
+      font-style: italic;
+      margin: 1rem 0;
+    }
+    .md-body code {
+      background: var(--bg-elevated);
+      padding: 2px 6px; border-radius: 3px;
+      font-size: 0.87em; font-family: var(--font-mono);
+    }
+    .md-body pre {
+      background: var(--bg-elevated);
+      border: 1px solid var(--border-subtle);
+      padding: 14px 16px; border-radius: var(--r);
+      overflow-x: auto; margin-bottom: 1rem;
+    }
+    .md-body pre code { background: none; padding: 0; font-size: 0.85em; }
+    .md-body ul { list-style: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
+    .md-body ol { list-style: decimal; padding-left: 1.5rem; margin-bottom: 1rem; }
+    .md-body li { margin-bottom: 0.3rem; }
+    .md-body hr { border: none; border-top: 1px solid var(--border-subtle); margin: 1.5rem 0; }
+    .md-body table { border-collapse: collapse; width: 100%; margin-bottom: 1rem; font-size: 0.9em; }
+    .md-body th, .md-body td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; }
+    .md-body th {
+      background: var(--bg-elevated); font-weight: 600;
+      font-family: var(--font-ui); font-size: 0.82em;
+      text-transform: uppercase; letter-spacing: 0.05em;
+    }
+
+    .raw-md {
+      width: 100%; height: 380px;
+      background: var(--bg); border: 1px solid var(--border-subtle);
+      border-radius: var(--r); padding: 14px;
+      color: var(--text-2); font-family: var(--font-mono);
+      font-size: 12px; resize: vertical; outline: none;
+    }
+    .raw-md:focus { border-color: var(--accent-dim); }
+
+    /* ── Library tab ──────────────────────────── */
+    .library-layout {
+      display: grid;
+      grid-template-columns: 290px 1fr;
+      height: calc(100vh - var(--header-h));
+      height: calc(100dvh - var(--header-h));
+    }
+
+    .posts-panel {
+      border-right: 1px solid var(--border-subtle);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .posts-panel-hd {
+      padding: 14px 16px 12px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .posts-panel-label {
+      font-size: 11px; font-weight: 600;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--text-3);
+    }
+    .posts-count { font-size: 11px; color: var(--text-3); }
+    .posts-panel-hd .link-btn { margin-left: auto; }
+
+    .posts-list {
+      flex: 1; overflow-y: auto; padding: 6px 0;
+    }
+    .posts-list::-webkit-scrollbar { width: 4px; }
+    .posts-list::-webkit-scrollbar-track { background: transparent; }
+    .posts-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .post-item {
+      display: block; width: 100%; text-align: left;
+      background: none; border: none; cursor: pointer;
+      padding: 10px 16px;
+      transition: background 0.1s;
+    }
+    .post-item:hover { background: var(--bg-hover); }
+    .post-item.active { background: var(--accent-bg); }
+
+    .post-item-title {
+      font-size: 13px; font-weight: 500; color: var(--text-1);
+      line-height: 1.35;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .post-item.active .post-item-title { color: var(--accent); }
+
+    .post-item-meta {
+      margin-top: 3px; font-size: 11px; color: var(--text-3);
+      display: flex; gap: 8px; align-items: baseline;
+    }
+    .post-item-author {
+      color: var(--accent-dim);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 120px;
+    }
+
+    .list-msg {
+      padding: 32px 16px; text-align: center;
+      font-size: 13px; color: var(--text-3); font-style: italic;
+    }
+
+    /* ── Reader panel ─────────────────────────── */
+    .reader-panel {
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .reader-hd {
+      padding: 0 24px;
+      height: 49px;
+      border-bottom: 1px solid var(--border-subtle);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .reader-title {
+      flex: 1; font-size: 14px; font-weight: 600; color: var(--text-1);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .reader-title.empty { color: var(--text-3); font-weight: 400; font-style: italic; }
+
+    .reader-scroll {
+      flex: 1; overflow-y: auto; padding: 36px 40px 72px;
+      display: block;
+    }
+    .reader-scroll::-webkit-scrollbar { width: 5px; }
+    .reader-scroll::-webkit-scrollbar-track { background: transparent; }
+    .reader-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+    .reader-empty {
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      height: 100%; gap: 8px;
+      color: var(--text-3); pointer-events: none;
+    }
+    .reader-empty-arrow { font-size: 20px; }
+    .reader-empty-text  { font-size: 13px; }
+
+    .reader-loading {
+      display: flex; align-items: center; justify-content: center;
+      height: 100%; gap: 10px;
+      color: var(--text-3); font-size: 13px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+    }
+
+    .reader-body { max-width: 68ch; margin: 0; text-align: left; }
+
+    /* ── Transitions ──────────────────────────── */
+    @media (prefers-reduced-motion: no-preference) {
+      .tab-pane.active { animation: rise 0.18s ease-out both; }
+      .reader-body     { animation: rise 0.15s ease-out both; }
+      @keyframes rise {
+        from { opacity: 0; transform: translateY(5px); }
+        to   { opacity: 1; transform: translateY(0); }
+      }
+    }
+
+    /* ── Utility classes ──────────────────────── */
+    .panel-label-note           { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--text-3); }
+    .cookie-save-row            { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+    .btn-primary.btn-primary-sm { padding: 7px 16px; font-size: 13px; }
+    .save-msg                   { font-size: 12px; }
+    .field-label                { display: block; font-size: 13px; font-weight: 600; color: var(--text-2); }
+    .btn-ghost.btn-ghost-sm     { font-size: 12px; padding: 5px 12px; flex-shrink: 0; }
+    .btn-danger                 { background: none; border: 1px solid var(--red); color: var(--red); border-radius: var(--r); cursor: pointer; font-family: var(--font-ui); font-size: 12px; padding: 5px 12px; flex-shrink: 0; transition: background 0.15s, color 0.15s; display: flex; align-items: center; gap: 5px; }
+    .btn-danger:hover           { background: var(--red-bg); }
+    .btn-danger.confirming      { background: var(--red); color: #fff; border-color: var(--red); }
+    .btn-danger.confirming:hover{ background: oklch(55% 0.20 15); }
+    .reader-error               { color: var(--red); font-size: 13px; }
+
+    /* ── Responsive ───────────────────────────── */
+    @media (max-width: 640px) {
+      .library-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+        min-height: calc(100dvh - var(--header-h));
+      }
+      .posts-panel {
+        border-right: none;
+        border-bottom: 1px solid var(--border-subtle);
+        height: 220px;
+      }
+      .reader-panel { overflow: visible; }
+      .reader-scroll {
+        flex: none;
+        overflow-y: visible;
+        padding: 24px 20px 48px;
+      }
+    }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="brand">
+      <span class="brand-icon">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M8 3c-3 5-4 10-3 17"/>
+          <path d="M13 3c-2 5-3 10-2 17"/>
+          <path d="M18 3c-1 5-2 10-1 17"/>
+        </svg>
+      </span>
+      Patreon Claw
+    </div>
+    <nav class="app-tabs" role="tablist" aria-label="App sections">
+      <button class="app-tab active" id="tab-claw"    role="tab" aria-selected="true"  aria-controls="pane-claw"    tabindex="0"  data-tab="claw"    onclick="switchTab('claw')">Claw</button>
+      <button class="app-tab"        id="tab-library" role="tab" aria-selected="false" aria-controls="pane-library" tabindex="-1" data-tab="library" onclick="switchTab('library')">Library</button>
+    </nav>
+  </header>
+
+  <!-- ════════════ CLAW TAB ════════════ -->
+  <div id="pane-claw" class="tab-pane active" role="tabpanel" aria-labelledby="tab-claw">
+    <div class="claw-layout">
+
+      <div id="cookieBanner" class="status-banner" role="region" aria-label="Cookie status">
+        <span id="bannerIcon" class="banner-icon"><svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" aria-hidden="true" class="banner-spin"><circle cx="8" cy="8" r="5.5" stroke-dasharray="20 14"/></svg></span>
+        <div>
+          <p id="bannerMsg" class="banner-title">Checking cookies…</p>
+          <p id="bannerHint" class="banner-hint hidden"></p>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-row">
+          <div>
+            <p class="panel-label">Patreon cookies</p>
+            <p id="cookieStatus" class="panel-sub">Checking…</p>
+          </div>
+          <button id="cookiePanelBtn" onclick="toggleCookiePanel()" class="link-btn">Set cookies</button>
+        </div>
+        <div id="cookiePanel" class="hidden">
+          <ol class="cookie-steps">
+            <li>Open <strong>patreon.com</strong> in Chrome</li>
+            <li>Click the <strong>Cookie-Editor</strong> extension</li>
+            <li>Click <strong>Export All</strong> — copies JSON to clipboard</li>
+            <li>Paste below and save</li>
+          </ol>
+          <textarea id="cookieInput" class="cookie-textarea" rows="4"
+            placeholder='[{"name":"session_id","value":"..."},...]'></textarea>
+          <div class="cookie-save-row">
+            <button onclick="saveCookies()" class="btn-primary btn-primary-sm">Save cookies</button>
+            <p id="cookieSaveMsg" class="save-msg hidden" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label class="field-label" for="urlInput">Patreon article URL</label>
+        <div class="input-row">
+          <input id="urlInput" type="url" class="url-input"
+            placeholder="https://www.patreon.com/posts/…" />
+          <button id="scrapeBtn" onclick="startScrape()" class="btn-primary">Scrape</button>
+        </div>
+        <p id="statusMsg" class="scrape-status hidden" role="status" aria-live="polite"></p>
+      </div>
+
+      <div id="resultCard" class="panel hidden">
+        <div class="result-meta">
+          <div class="result-filename">
+            <span>Saved as</span>
+            <code id="savedFilename"></code>
+          </div>
+          <a id="downloadBtn" href="#" class="btn-ghost"><svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v7.5M5.5 7l2.5 2.5 2.5-2.5M3.5 13h9"/></svg> Download .md</a>
+        </div>
+        <div class="result-tabs">
+          <button id="tab-preview" onclick="showResultTab('preview')" class="result-tab active">Preview</button>
+          <button id="tab-raw"     onclick="showResultTab('raw')"     class="result-tab">Raw Markdown</button>
+        </div>
+        <div id="preview" class="md-body"></div>
+        <textarea id="rawMd" class="raw-md hidden" readonly></textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════ LIBRARY TAB ════════════ -->
+  <div id="pane-library" class="tab-pane" role="tabpanel" aria-labelledby="tab-library">
+    <div class="library-layout">
+
+      <aside class="posts-panel" aria-label="Saved posts">
+        <div class="posts-panel-hd">
+          <span class="posts-panel-label">Saved posts</span>
+          <span id="libraryCount" class="posts-count"></span>
+          <button onclick="loadLibrary()" class="link-btn">Refresh</button>
+        </div>
+        <div id="libraryList" class="posts-list">
+          <p class="list-msg">Loading…</p>
+        </div>
+      </aside>
+
+      <section class="reader-panel" aria-label="Post reader">
+        <div class="reader-hd">
+          <span id="readerTitle" class="reader-title empty">No post selected</span>
+          <a id="readerDl" href="#" class="btn-ghost btn-ghost-sm hidden"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2v7.5M5.5 7l2.5 2.5 2.5-2.5M3.5 13h9"/></svg> .md</a>
+          <button id="readerDelete" class="btn-danger hidden" onclick="deletePost()"><svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 4h11M6 4V2.5h4V4M5 4l.5 9.5h5L11 4"/></svg> <span id="readerDeleteLabel">Delete</span></button>
+        </div>
+        <div class="reader-scroll" id="readerScroll">
+          <div id="readerEmpty" class="reader-empty">
+            <span class="reader-empty-arrow">←</span>
+            <span class="reader-empty-text">Select a post to read it here</span>
+          </div>
+          <div id="readerLoading" class="reader-loading hidden" aria-live="polite" aria-label="Loading post">
+            <div class="spinner"></div>Loading…
+          </div>
+          <div id="readerBody" class="reader-body hidden"></div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+
+  <script>
+    let selectedPost   = null;
+    let libraryLoaded  = false;
+    let statusInterval = null;
+
+    const ICONS = {
+      cookie: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="8" height="5.5" rx="1"/><path d="M5.75 8V5.75a2.25 2.25 0 014.5 0V8"/></svg>`,
+      warn:   `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13.75 13H2.25L8 2.5z"/><path d="M8 6.5v3"/><circle cx="8" cy="11.75" r=".75" fill="currentColor" stroke="none"/></svg>`,
+    };
+
+    // ── Tab switching ──────────────────────────
+    function switchTab(name) {
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('[role="tab"]').forEach(b => {
+        b.classList.remove('active');
+        b.setAttribute('aria-selected', 'false');
+        b.setAttribute('tabindex', '-1');
+      });
+      document.getElementById('pane-' + name).classList.add('active');
+      const activeTab = document.querySelector(`[data-tab="${name}"]`);
+      activeTab.classList.add('active');
+      activeTab.setAttribute('aria-selected', 'true');
+      activeTab.setAttribute('tabindex', '0');
+      if (name === 'library') {
+        stopStatusPoll();
+        if (!libraryLoaded) loadLibrary();
+      } else {
+        checkStatus();
+        startStatusPoll();
+      }
+    }
+
+    // ── Status banner ──────────────────────────
+    async function checkStatus() {
+      try {
+        const cookieRes = await fetch('/cookies/status').then(r => r.json());
+        const banner = document.getElementById('cookieBanner');
+        const icon   = document.getElementById('bannerIcon');
+        const msg    = document.getElementById('bannerMsg');
+        const hint   = document.getElementById('bannerHint');
+
+        if (cookieRes.hasCookies) {
+          banner.className = 'status-banner s-cookie';
+          icon.innerHTML   = ICONS.cookie;
+          msg.textContent  = 'Cookies loaded — ready to scrape.';
+          hint.textContent = 'If you get a login error, re-export cookies from Cookie-Editor.';
+          hint.classList.remove('hidden');
+        } else {
+          banner.className = 'status-banner s-warn';
+          icon.innerHTML   = ICONS.warn;
+          msg.textContent  = 'No cookies saved — paste cookies below to get started.';
+          hint.classList.add('hidden');
+        }
+
+        document.getElementById('cookieStatus').textContent = cookieRes.hasCookies
+          ? `${cookieRes.count} cookies saved`
+          : 'No cookies saved yet';
+      } catch { /* ignore */ }
+    }
+
+    // ── Cookie panel ───────────────────────────
+    function toggleCookiePanel() {
+      const panel = document.getElementById('cookiePanel');
+      const btn   = document.getElementById('cookiePanelBtn');
+      btn.textContent = panel.classList.toggle('hidden') ? 'Set cookies' : 'Hide';
+    }
+
+    async function saveCookies() {
+      const raw = document.getElementById('cookieInput').value.trim();
+      const msg = document.getElementById('cookieSaveMsg');
+      let parsed;
+      try { parsed = JSON.parse(raw); } catch {
+        setMsg(msg, '✗ Invalid JSON', 'var(--red)'); return;
+      }
+      if (!Array.isArray(parsed)) {
+        setMsg(msg, '✗ Expected a JSON array', 'var(--red)'); return;
+      }
+      try {
+        const res  = await fetch('/cookies', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookies: parsed }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        setMsg(msg, `${data.saved} cookies saved`, 'var(--green)');
+        document.getElementById('cookieInput').value = '';
+        checkStatus();
+      } catch (err) {
+        setMsg(msg, `✗ ${err.message}`, 'var(--red)');
+      }
+    }
+
+    function setMsg(el, text, color) {
+      el.textContent = text;
+      el.style.color = color;
+      el.classList.remove('hidden');
+    }
+
+    // ── Scrape ─────────────────────────────────
+    async function startScrape() {
+      const url = document.getElementById('urlInput').value.trim();
+      if (!url) return;
+
+      const btn    = document.getElementById('scrapeBtn');
+      const status = document.getElementById('statusMsg');
+
+      btn.disabled = true;
+      status.textContent = 'Scraping… this may take up to a minute.';
+      status.className = 'scrape-status';
+      status.classList.remove('hidden');
+      document.getElementById('resultCard').classList.add('hidden');
+
+      try {
+        const res  = await fetch('/scrape', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Unknown error');
+
+        document.getElementById('savedFilename').textContent = `posts/${data.filename}`;
+        document.getElementById('downloadBtn').href = `/posts/${data.filename}`;
+        document.getElementById('rawMd').value = data.markdown;
+        document.getElementById('preview').innerHTML = marked.parse(data.markdown);
+        document.getElementById('resultCard').classList.remove('hidden');
+        status.textContent = 'Saved.';
+
+        // Refresh library silently
+        libraryLoaded = false;
+        loadLibrary();
+      } catch (err) {
+        status.textContent = `✗ ${err.message}`;
+        status.classList.add('is-error');
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    function showResultTab(tab) {
+      const isPreview = tab === 'preview';
+      document.getElementById('preview').classList.toggle('hidden', !isPreview);
+      document.getElementById('rawMd').classList.toggle('hidden', isPreview);
+      document.getElementById('tab-preview').classList.toggle('active', isPreview);
+      document.getElementById('tab-raw').classList.toggle('active', !isPreview);
+    }
+
+    // ── Library ────────────────────────────────
+    function cleanTitle(fn) {
+      return fn.replace(/\.md$/, '').replace(/[-_]+/g, ' ')
+               .replace(/\b\w/g, c => c.toUpperCase());
+    }
+    function fmtSize(b) {
+      if (b < 1024) return `${b} B`;
+      const k = b / 1024;
+      return k < 100 ? `${k.toFixed(1)} KB` : `${Math.round(k)} KB`;
+    }
+    function fmtDate(iso) {
+      const d = new Date(iso), now = new Date();
+      const o = { month: 'short', day: 'numeric' };
+      if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
+      return d.toLocaleDateString('en-US', o);
+    }
+
+    async function loadLibrary() {
+      try {
+        const files = await fetch('/posts').then(r => r.json());
+        libraryLoaded = true;
+        document.getElementById('libraryCount').textContent = files.length || '';
+        const list = document.getElementById('libraryList');
+
+        if (!files.length) {
+          list.innerHTML = '<p class="list-msg">No posts saved yet.</p>';
+          return;
+        }
+
+        list.innerHTML = files.map(f => {
+          const active = selectedPost === f.filename ? ' active' : '';
+          const safe   = f.filename.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+          return `<button class="post-item${active}" data-fn="${safe}" onclick="openPost(this)">
+            <div class="post-item-title">${cleanTitle(f.filename)}</div>
+            <div class="post-item-meta">
+              ${f.author ? `<span class="post-item-author">${f.author.replace(/&/g,'&amp;')}</span>` : ''}
+              <span>${f.postDate ? fmtDate(f.postDate) : fmtDate(f.mtime)}</span>
+            </div>
+          </button>`;
+        }).join('');
+      } catch { /* ignore */ }
+    }
+
+    async function openPost(btn) {
+      const filename = btn.dataset.fn;
+      document.querySelectorAll('.post-item').forEach(el => el.classList.remove('active'));
+      btn.classList.add('active');
+      selectedPost = filename;
+
+      const title   = document.getElementById('readerTitle');
+      const body    = document.getElementById('readerBody');
+      const empty   = document.getElementById('readerEmpty');
+      const loading = document.getElementById('readerLoading');
+      const dl      = document.getElementById('readerDl');
+      const delBtn  = document.getElementById('readerDelete');
+
+      title.textContent = cleanTitle(filename);
+      title.classList.remove('empty');
+      body.classList.add('hidden');
+      empty.classList.add('hidden');
+      loading.classList.remove('hidden');
+      dl.classList.add('hidden');
+      delBtn.classList.add('hidden');
+      resetDeleteBtn();
+
+      try {
+        const res  = await fetch(`/posts/${encodeURIComponent(filename)}/read`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        body.innerHTML = `<div class="md-body">${marked.parse(data.content)}</div>`;
+        body.classList.remove('hidden');
+        dl.href = `/posts/${encodeURIComponent(filename)}`;
+        dl.classList.remove('hidden');
+        delBtn.classList.remove('hidden');
+        document.getElementById('readerScroll').scrollTop = 0;
+      } catch (err) {
+        body.innerHTML = `<p class="reader-error">✗ ${err.message}</p>`;
+        body.classList.remove('hidden');
+      } finally {
+        loading.classList.add('hidden');
+      }
+    }
+
+    let deleteConfirmTimer = null;
+    function resetDeleteBtn() {
+      const btn = document.getElementById('readerDelete');
+      const lbl = document.getElementById('readerDeleteLabel');
+      if (!btn) return;
+      btn.classList.remove('confirming');
+      lbl.textContent = 'Delete';
+      if (deleteConfirmTimer) { clearTimeout(deleteConfirmTimer); deleteConfirmTimer = null; }
+    }
+
+    async function deletePost() {
+      const btn = document.getElementById('readerDelete');
+      const lbl = document.getElementById('readerDeleteLabel');
+      if (!selectedPost) return;
+
+      if (!btn.classList.contains('confirming')) {
+        // First click — enter confirm state, auto-reset after 3s
+        btn.classList.add('confirming');
+        lbl.textContent = 'Confirm?';
+        deleteConfirmTimer = setTimeout(resetDeleteBtn, 3000);
+        return;
+      }
+
+      // Second click — execute delete
+      resetDeleteBtn();
+      btn.disabled = true;
+      lbl.textContent = 'Deleting…';
+      try {
+        const res  = await fetch(`/posts/${encodeURIComponent(selectedPost)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        // Clear the reader
+        const title = document.getElementById('readerTitle');
+        title.textContent = 'No post selected';
+        title.classList.add('empty');
+        document.getElementById('readerBody').classList.add('hidden');
+        document.getElementById('readerEmpty').classList.remove('hidden');
+        document.getElementById('readerDl').classList.add('hidden');
+        btn.classList.add('hidden');
+
+        // Remove from list and refresh
+        selectedPost = null;
+        libraryLoaded = false;
+        loadLibrary();
+      } catch (err) {
+        lbl.textContent = 'Error';
+        setTimeout(resetDeleteBtn, 2000);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    document.getElementById('urlInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') startScrape();
+    });
+
+    document.querySelector('[role="tablist"]').addEventListener('keydown', e => {
+      const tabs = [...document.querySelectorAll('[role="tab"]')];
+      const idx  = tabs.indexOf(document.activeElement);
+      if (idx === -1) return;
+      let next = -1;
+      if (e.key === 'ArrowRight') next = (idx + 1) % tabs.length;
+      if (e.key === 'ArrowLeft')  next = (idx - 1 + tabs.length) % tabs.length;
+      if (next !== -1) { e.preventDefault(); tabs[next].focus(); tabs[next].click(); }
+    });
+
+    function startStatusPoll() {
+      if (!statusInterval) statusInterval = setInterval(checkStatus, 5000);
+    }
+    function stopStatusPoll() {
+      clearInterval(statusInterval);
+      statusInterval = null;
+    }
+
+    checkStatus();
+    startStatusPoll();
+    loadLibrary();
+  </script>
+</body>
+</html>

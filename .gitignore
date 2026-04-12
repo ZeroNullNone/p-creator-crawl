@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Environment — contains local paths, never commit
+.env
+
+# Authentication cookies — sensitive, never commit
+patreon-cookies.json
+
+# Scraped output — personal content, not for version control
+posts/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# AI / editor tooling
+.agents/
+.impeccable.md
+skills-lock.json
+
+# Retired helpers
+launch-chrome.bat
