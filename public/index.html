@@ -382,6 +382,26 @@
     .posts-count { font-size: 11px; color: var(--text-3); }
     .posts-panel-hd .link-btn { margin-left: auto; }
 
+    .posts-search {
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      flex-shrink: 0;
+    }
+    .library-search {
+      width: 100%;
+      padding: 8px 12px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--r);
+      color: var(--text-1);
+      font-family: var(--font-ui);
+      font-size: 13px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    .library-search::placeholder { color: var(--text-3); }
+    .library-search:focus { border-color: var(--accent-dim); }
+
     .posts-list {
       flex: 1; overflow-y: auto; padding: 6px 0;
     }
@@ -612,6 +632,14 @@
           <span id="libraryCount" class="posts-count"></span>
           <button onclick="loadLibrary()" class="link-btn">Refresh</button>
         </div>
+        <div class="posts-search">
+          <input
+            id="librarySearch"
+            class="library-search"
+            type="search"
+            placeholder="Search by post title…"
+            aria-label="Search saved posts by title" />
+        </div>
         <div id="libraryList" class="posts-list">
           <p class="list-msg">Loading…</p>
         </div>
@@ -640,6 +668,8 @@
 
   <script>
     let selectedPost   = null;
+    let libraryPosts   = [];
+    let librarySearch  = '';
     let libraryLoaded  = false;
     let statusInterval = null;
 
@@ -802,30 +832,52 @@
       if (d.getFullYear() !== now.getFullYear()) o.year = 'numeric';
       return d.toLocaleDateString('en-US', o);
     }
+    function escapeHtml(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+    function renderLibrary() {
+      const list = document.getElementById('libraryList');
+      const count = document.getElementById('libraryCount');
+      const query = librarySearch.trim().toLowerCase();
+      const filtered = libraryPosts.filter(f => cleanTitle(f.filename).toLowerCase().includes(query));
+
+      count.textContent = libraryPosts.length
+        ? (query ? `${filtered.length} of ${libraryPosts.length}` : String(libraryPosts.length))
+        : '';
+
+      if (!libraryPosts.length) {
+        list.innerHTML = '<p class="list-msg">No posts saved yet.</p>';
+        return;
+      }
+
+      if (!filtered.length) {
+        list.innerHTML = '<p class="list-msg">No posts match your search.</p>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(f => {
+        const active = selectedPost === f.filename ? ' active' : '';
+        return `<button class="post-item${active}" data-fn="${escapeHtml(f.filename)}" onclick="openPost(this)">
+          <div class="post-item-title">${escapeHtml(cleanTitle(f.filename))}</div>
+          <div class="post-item-meta">
+            ${f.author ? `<span class="post-item-author">${escapeHtml(f.author)}</span>` : ''}
+            <span>${f.postDate ? fmtDate(f.postDate) : fmtDate(f.mtime)}</span>
+          </div>
+        </button>`;
+      }).join('');
+    }
 
     async function loadLibrary() {
       try {
         const files = await fetch('/posts').then(r => r.json());
+        libraryPosts = files;
         libraryLoaded = true;
-        document.getElementById('libraryCount').textContent = files.length || '';
-        const list = document.getElementById('libraryList');
-
-        if (!files.length) {
-          list.innerHTML = '<p class="list-msg">No posts saved yet.</p>';
-          return;
-        }
-
-        list.innerHTML = files.map(f => {
-          const active = selectedPost === f.filename ? ' active' : '';
-          const safe   = f.filename.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
-          return `<button class="post-item${active}" data-fn="${safe}" onclick="openPost(this)">
-            <div class="post-item-title">${cleanTitle(f.filename)}</div>
-            <div class="post-item-meta">
-              ${f.author ? `<span class="post-item-author">${f.author.replace(/&/g,'&amp;')}</span>` : ''}
-              <span>${f.postDate ? fmtDate(f.postDate) : fmtDate(f.mtime)}</span>
-            </div>
-          </button>`;
-        }).join('');
+        renderLibrary();
       } catch { /* ignore */ }
     }
 
@@ -925,6 +977,11 @@
 
     document.getElementById('urlInput').addEventListener('keydown', e => {
       if (e.key === 'Enter') startScrape();
+    });
+
+    document.getElementById('librarySearch').addEventListener('input', e => {
+      librarySearch = e.target.value;
+      renderLibrary();
     });
 
     document.querySelector('[role="tablist"]').addEventListener('keydown', e => {
