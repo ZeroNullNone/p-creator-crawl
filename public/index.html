@@ -788,7 +788,12 @@
           body: JSON.stringify({ url }),
         });
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Unknown error');
+        if (!res.ok) {
+          if (data.duplicate) {
+            throw new Error(`⚠ Duplicate — already saved as "${data.title || data.filename}"`);
+          }
+          throw new Error(data.error || 'Unknown error');
+        }
 
         document.getElementById('savedFilename').textContent = `posts/${data.filename}`;
         document.getElementById('downloadBtn').href = `/posts/${data.filename}`;

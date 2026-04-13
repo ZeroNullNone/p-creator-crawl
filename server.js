@@ -41,6 +41,25 @@ app.post('/scrape', async (req, res) => {
     return res.status(400).json({ error: 'Please provide a valid Patreon URL.' });
   }
 
+  // Check for duplicate: scan meta files for matching source URL
+  const metaDir = path.join(OUTPUT_DIR, 'meta');
+  if (fs.existsSync(metaDir)) {
+    for (const file of fs.readdirSync(metaDir).filter(f => f.endsWith('.json'))) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(path.join(metaDir, file), 'utf8'));
+        if (meta.source === url) {
+          const filename = file.replace(/\.json$/, '.md');
+          return res.status(409).json({
+            error: `Duplicate: this URL has already been saved as "${meta.title || filename}".`,
+            duplicate: true,
+            filename,
+            title: meta.title || '',
+          });
+        }
+      } catch { /* skip unreadable meta */ }
+    }
+  }
+
   try {
     const result = await scrapePatreon(url);
     res.json({
