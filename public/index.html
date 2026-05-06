@@ -3,11 +3,23 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Patreon Claw</title>
+  <title>P Creator Crawl</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Literata:ital,opsz,wght@0,7..72,400;0,7..72,500;1,7..72,400&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['$', '$'], ['\\(', '\\)']],
+        displayMath: [['$$', '$$'], ['\\[', '\\]']],
+      },
+      options: {
+        skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code'],
+      },
+    };
+  </script>
+  <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -549,7 +561,7 @@
           <path d="M18 3c-1 5-2 10-1 17"/>
         </svg>
       </span>
-      Patreon Claw
+      P Creator Crawl
     </div>
     <nav class="app-tabs" role="tablist" aria-label="App sections">
       <button class="app-tab active" id="tab-claw"    role="tab" aria-selected="true"  aria-controls="pane-claw"    tabindex="0"  data-tab="claw"    onclick="switchTab('claw')">Claw</button>
@@ -573,31 +585,55 @@
         <div class="panel-row">
           <div>
             <p class="panel-label">Patreon cookies</p>
-            <p id="cookieStatus" class="panel-sub">Checking…</p>
+            <p id="patreonCookieStatus" class="panel-sub">Checking…</p>
           </div>
-          <button id="cookiePanelBtn" onclick="toggleCookiePanel()" class="link-btn">Set cookies</button>
+          <button id="patreonCookiePanelBtn" onclick="toggleCookiePanel('patreon')" class="link-btn">Set cookies</button>
         </div>
-        <div id="cookiePanel" class="hidden">
+        <div id="patreonCookiePanel" class="hidden">
           <ol class="cookie-steps">
             <li>Open <strong>patreon.com</strong> in Chrome</li>
             <li>Click the <strong>Cookie-Editor</strong> extension</li>
             <li>Click <strong>Export All</strong> — copies JSON to clipboard</li>
             <li>Paste below and save</li>
           </ol>
-          <textarea id="cookieInput" class="cookie-textarea" rows="4"
+          <textarea id="patreonCookieInput" class="cookie-textarea" rows="4"
             placeholder='[{"name":"session_id","value":"..."},...]'></textarea>
           <div class="cookie-save-row">
-            <button onclick="saveCookies()" class="btn-primary btn-primary-sm">Save cookies</button>
-            <p id="cookieSaveMsg" class="save-msg hidden" role="status" aria-live="polite"></p>
+            <button onclick="saveCookies('patreon')" class="btn-primary btn-primary-sm">Save Patreon cookies</button>
+            <p id="patreonCookieSaveMsg" class="save-msg hidden" role="status" aria-live="polite"></p>
           </div>
         </div>
       </div>
 
       <div class="panel">
-        <label class="field-label" for="urlInput">Patreon article URL</label>
+        <div class="panel-row">
+          <div>
+            <p class="panel-label">Substack cookies</p>
+            <p id="substackCookieStatus" class="panel-sub">Checking…</p>
+          </div>
+          <button id="substackCookiePanelBtn" onclick="toggleCookiePanel('substack')" class="link-btn">Set cookies</button>
+        </div>
+        <div id="substackCookiePanel" class="hidden">
+          <ol class="cookie-steps">
+            <li>Open <strong>substack.com</strong> while logged in, export cookies, then save them here</li>
+            <li>Open the <strong>exact article domain</strong> (e.g. a custom-domain publication), export cookies, then save again</li>
+            <li>Repeated saves <strong>merge</strong> into one Substack cookie store</li>
+            <li>Paste each export below and save after each one</li>
+          </ol>
+          <textarea id="substackCookieInput" class="cookie-textarea" rows="4"
+            placeholder='[{"name":"substack.sid","value":"..."},...]'></textarea>
+          <div class="cookie-save-row">
+            <button onclick="saveCookies('substack')" class="btn-primary btn-primary-sm">Save / merge Substack cookies</button>
+            <p id="substackCookieSaveMsg" class="save-msg hidden" role="status" aria-live="polite"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <label class="field-label" for="urlInput">Article URL</label>
         <div class="input-row">
           <input id="urlInput" type="url" class="url-input"
-            placeholder="https://www.patreon.com/posts/…" />
+            placeholder="https://www.patreon.com/posts/... or https://your-publication.com/p/..." />
           <button id="scrapeBtn" onclick="startScrape()" class="btn-primary">Scrape</button>
         </div>
         <p id="statusMsg" class="scrape-status hidden" role="status" aria-live="polite"></p>
@@ -672,11 +708,33 @@
     let librarySearch  = '';
     let libraryLoaded  = false;
     let statusInterval = null;
+    const COOKIE_SOURCES = {
+      patreon: {
+        label: 'Patreon',
+        statusId: 'patreonCookieStatus',
+        panelId: 'patreonCookiePanel',
+        buttonId: 'patreonCookiePanelBtn',
+        inputId: 'patreonCookieInput',
+        messageId: 'patreonCookieSaveMsg',
+      },
+      substack: {
+        label: 'Substack',
+        statusId: 'substackCookieStatus',
+        panelId: 'substackCookiePanel',
+        buttonId: 'substackCookiePanelBtn',
+        inputId: 'substackCookieInput',
+        messageId: 'substackCookieSaveMsg',
+      },
+    };
 
     const ICONS = {
       cookie: `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="8" width="8" height="5.5" rx="1"/><path d="M5.75 8V5.75a2.25 2.25 0 014.5 0V8"/></svg>`,
       warn:   `<svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5 13.75 13H2.25L8 2.5z"/><path d="M8 6.5v3"/><circle cx="8" cy="11.75" r=".75" fill="currentColor" stroke="none"/></svg>`,
     };
+
+    function sourceLabel(source) {
+      return COOKIE_SOURCES[source]?.label || source;
+    }
 
     // ── Tab switching ──────────────────────────
     function switchTab(name) {
@@ -703,41 +761,58 @@
     // ── Status banner ──────────────────────────
     async function checkStatus() {
       try {
-        const cookieRes = await fetch('/cookies/status').then(r => r.json());
+        const states = await Promise.all(Object.keys(COOKIE_SOURCES).map(async (source) => {
+          const res  = await fetch(`/cookies/status?source=${encodeURIComponent(source)}`);
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Unknown error');
+          return data;
+        }));
         const banner = document.getElementById('cookieBanner');
         const icon   = document.getElementById('bannerIcon');
         const msg    = document.getElementById('bannerMsg');
         const hint   = document.getElementById('bannerHint');
 
-        if (cookieRes.hasCookies) {
+        states.forEach((state) => {
+          const cfg = COOKIE_SOURCES[state.source];
+          document.getElementById(cfg.statusId).textContent = state.hasCookies
+            ? `${state.count} cookies saved`
+            : 'No cookies saved yet';
+        });
+
+        const ready = states.filter((state) => state.hasCookies);
+        if (ready.length === states.length) {
           banner.className = 'status-banner s-cookie';
           icon.innerHTML   = ICONS.cookie;
-          msg.textContent  = 'Cookies loaded — ready to scrape.';
-          hint.textContent = 'If you get a login error, re-export cookies from Cookie-Editor.';
+          msg.textContent  = 'Patreon and Substack cookies loaded — ready to scrape.';
+          hint.textContent = 'For paid Substack custom domains, save cookies from both substack.com and the article domain.';
+          hint.classList.remove('hidden');
+        } else if (ready.length) {
+          banner.className = 'status-banner s-cookie';
+          icon.innerHTML   = ICONS.cookie;
+          msg.textContent  = `${ready.map((state) => sourceLabel(state.source)).join(' + ')} cookies loaded.`;
+          hint.textContent = 'Substack custom-domain access may require cookies from both substack.com and the article domain.';
           hint.classList.remove('hidden');
         } else {
           banner.className = 'status-banner s-warn';
           icon.innerHTML   = ICONS.warn;
-          msg.textContent  = 'No cookies saved — paste cookies below to get started.';
+          msg.textContent  = 'No cookies saved — paste Patreon or Substack cookies below to get started.';
           hint.classList.add('hidden');
         }
-
-        document.getElementById('cookieStatus').textContent = cookieRes.hasCookies
-          ? `${cookieRes.count} cookies saved`
-          : 'No cookies saved yet';
       } catch { /* ignore */ }
     }
 
     // ── Cookie panel ───────────────────────────
-    function toggleCookiePanel() {
-      const panel = document.getElementById('cookiePanel');
-      const btn   = document.getElementById('cookiePanelBtn');
+    function toggleCookiePanel(source) {
+      const cfg = COOKIE_SOURCES[source];
+      const panel = document.getElementById(cfg.panelId);
+      const btn   = document.getElementById(cfg.buttonId);
       btn.textContent = panel.classList.toggle('hidden') ? 'Set cookies' : 'Hide';
     }
 
-    async function saveCookies() {
-      const raw = document.getElementById('cookieInput').value.trim();
-      const msg = document.getElementById('cookieSaveMsg');
+    async function saveCookies(source) {
+      const cfg = COOKIE_SOURCES[source];
+      const raw = document.getElementById(cfg.inputId).value.trim();
+      const msg = document.getElementById(cfg.messageId);
       let parsed;
       try { parsed = JSON.parse(raw); } catch {
         setMsg(msg, '✗ Invalid JSON', 'var(--red)'); return;
@@ -749,12 +824,13 @@
         const res  = await fetch('/cookies', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cookies: parsed }),
+          body: JSON.stringify({ source, cookies: parsed }),
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
-        setMsg(msg, `${data.saved} cookies saved`, 'var(--green)');
-        document.getElementById('cookieInput').value = '';
+        const totalText = data.total && data.total !== data.saved ? ` (${data.total} total)` : '';
+        setMsg(msg, `${data.saved} ${sourceLabel(source)} cookies saved${totalText}`, 'var(--green)');
+        document.getElementById(cfg.inputId).value = '';
         checkStatus();
       } catch (err) {
         setMsg(msg, `✗ ${err.message}`, 'var(--red)');
@@ -765,6 +841,100 @@
       el.textContent = text;
       el.style.color = color;
       el.classList.remove('hidden');
+    }
+
+    const UI_MATH_TOKEN_PREFIX = 'COPILOTUIMATHTOKEN';
+
+    function escapeHtmlText(text) {
+      return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+    }
+
+    function findClosingDisplayMath(markdown, startIndex) {
+      for (let i = startIndex; i < markdown.length - 1; i += 1) {
+        if (markdown[i] === '$' && markdown[i + 1] === '$' && markdown[i - 1] !== '\\') {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function findClosingInlineMath(markdown, startIndex) {
+      for (let i = startIndex; i < markdown.length; i += 1) {
+        if (markdown[i] === '\n') return -1;
+        if (markdown[i] === '$' && markdown[i - 1] !== '\\') {
+          return i;
+        }
+      }
+      return -1;
+    }
+
+    function protectMathMarkdown(markdown) {
+      const source = String(markdown || '');
+      const replacements = [];
+      let tokenized = '';
+      let i = 0;
+
+      while (i < source.length) {
+        if (source.startsWith('$$', i) && source[i - 1] !== '\\') {
+          const end = findClosingDisplayMath(source, i + 2);
+          if (end !== -1) {
+            const token = `${UI_MATH_TOKEN_PREFIX}${replacements.length + 1}TOKEN`;
+            replacements.push({ token, math: source.slice(i, end + 2) });
+            tokenized += token;
+            i = end + 2;
+            continue;
+          }
+        }
+
+        if (
+          source[i] === '$'
+          && source[i - 1] !== '\\'
+          && source[i + 1]
+          && source[i + 1] !== '$'
+          && !/\s/.test(source[i + 1])
+        ) {
+          const end = findClosingInlineMath(source, i + 1);
+          if (end !== -1 && !/\s/.test(source[end - 1])) {
+            const token = `${UI_MATH_TOKEN_PREFIX}${replacements.length + 1}TOKEN`;
+            replacements.push({ token, math: source.slice(i, end + 1) });
+            tokenized += token;
+            i = end + 1;
+            continue;
+          }
+        }
+
+        tokenized += source[i];
+        i += 1;
+      }
+
+      return { tokenizedMarkdown: tokenized, replacements };
+    }
+
+    function restoreProtectedMath(html, replacements) {
+      return replacements.reduce(
+        (output, replacement) => output.split(replacement.token).join(escapeHtmlText(replacement.math)),
+        html
+      );
+    }
+
+    async function renderMath(container) {
+      if (!container || !window.MathJax?.typesetPromise) return;
+      try {
+        await window.MathJax.typesetPromise([container]);
+      } catch { /* ignore */ }
+    }
+
+    async function renderMarkdownInto(container, markdown, wrapperClass = '') {
+      if (window.MathJax?.typesetClear) {
+        window.MathJax.typesetClear([container]);
+      }
+      const protectedMath = protectMathMarkdown(markdown);
+      const html = restoreProtectedMath(marked.parse(protectedMath.tokenizedMarkdown), protectedMath.replacements);
+      container.innerHTML = wrapperClass ? `<div class="${wrapperClass}">${html}</div>` : html;
+      await renderMath(container);
     }
 
     // ── Scrape ─────────────────────────────────
@@ -798,9 +968,9 @@
         document.getElementById('savedFilename').textContent = `posts/${data.filename}`;
         document.getElementById('downloadBtn').href = `/posts/${data.filename}`;
         document.getElementById('rawMd').value = data.markdown;
-        document.getElementById('preview').innerHTML = marked.parse(data.markdown);
+        await renderMarkdownInto(document.getElementById('preview'), data.markdown);
         document.getElementById('resultCard').classList.remove('hidden');
-        status.textContent = 'Saved.';
+        status.textContent = data.source ? `Saved ${sourceLabel(data.source)} article.` : 'Saved.';
 
         // Refresh library silently
         libraryLoaded = false;
@@ -913,7 +1083,7 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error);
 
-        body.innerHTML = `<div class="md-body">${marked.parse(data.content)}</div>`;
+        await renderMarkdownInto(body, data.content, 'md-body');
         body.classList.remove('hidden');
         dl.href = `/posts/${encodeURIComponent(filename)}`;
         dl.classList.remove('hidden');

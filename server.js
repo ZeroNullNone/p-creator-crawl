@@ -4,65 +4,127 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
-const { scrapePatreon, saveCookies, loadCookies } = require('./scraper');
+const {
+  detectSource,
+  scrapePatreon,
+  scrapeSubstack,
+  saveCookies,
+  loadCookies,
+} = require('./scraper');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || 'posts');
+const SUPPORTED_SOURCES = new Set(['patreon', 'substack']);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/images', express.static(path.join(OUTPUT_DIR, 'images')));
 
-// POST /cookies — save Cookie-Editor export JSON
+function canonicalizeUrl(value) {
+  try {
+    return new URL(String(value).trim()).toString();
+  } catch {
+    return String(value || '').trim();
+  }
+}
+
+function getSource(value, fallback = 'patreon') {
+  const source = String(value || fallback).trim().toLowerCase();
+  if (!SUPPORTED_SOURCES.has(source)) {
+    throw new Error(`Unsupported source "${source}".`);
+  }
+  return source;
+}
+
+function findDuplicateArticle(url) {
+  const metaDir = path.join(OUTPUT_DIR, 'meta');
+  if (!fs.existsSync(metaDir)) return null;
+
+  const target = canonicalizeUrl(url);
+  for (const file of fs.readdirSync(metaDir).filter((name) => name.endsWith('.json'))) {
+    try {
+      const meta = JSON.parse(fs.readFileSync(path.join(metaDir, file), 'utf8'));
+      if (canonicalizeUrl(meta.source) === target) {
+        const filename = file.replace(/\.json$/, '.md');
+        return {
+          filename,
+          title: meta.title || filename,
+        };
+      }
+    } catch {
+      // Skip unreadable metadata.
+    }
+  }
+  return null;
+}
+
 app.post('/cookies', (req, res) => {
-  const { cookies } = req.body;
+  const { source: rawSource, cookies } = req.body;
   if (!Array.isArray(cookies) || cookies.length === 0) {
     return res.status(400).json({ error: 'Expected a non-empty array of cookies.' });
   }
+
+  let source;
   try {
-    saveCookies(cookies);
-    res.json({ saved: cookies.length });
+    source = getSource(rawSource);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  try {
+    const total = saveCookies(source, cookies);
+    res.json({ source, saved: cookies.length, total });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /cookies/status — check if cookies are saved
 app.get('/cookies/status', (req, res) => {
-  const cookies = loadCookies();
-  res.json({ hasCookies: !!cookies, count: cookies ? cookies.length : 0 });
+  let source;
+  try {
+    source = getSource(req.query.source);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const cookies = loadCookies(source);
+  res.json({ source, hasCookies: !!cookies, count: cookies ? cookies.length : 0 });
 });
 
-// POST /scrape  — { url: "https://www.patreon.com/posts/..." }
 app.post('/scrape', async (req, res) => {
-  const { url } = req.body;
-  if (!url || !url.includes('patreon.com')) {
-    return res.status(400).json({ error: 'Please provide a valid Patreon URL.' });
+  const rawUrl = typeof req.body.url === 'string' ? req.body.url.trim() : '';
+  if (!rawUrl) {
+    return res.status(400).json({ error: 'Please provide a Patreon or Substack article URL.' });
   }
 
-  // Check for duplicate: scan meta files for matching source URL
-  const metaDir = path.join(OUTPUT_DIR, 'meta');
-  if (fs.existsSync(metaDir)) {
-    for (const file of fs.readdirSync(metaDir).filter(f => f.endsWith('.json'))) {
-      try {
-        const meta = JSON.parse(fs.readFileSync(path.join(metaDir, file), 'utf8'));
-        if (meta.source === url) {
-          const filename = file.replace(/\.json$/, '.md');
-          return res.status(409).json({
-            error: `Duplicate: this URL has already been saved as "${meta.title || filename}".`,
-            duplicate: true,
-            filename,
-            title: meta.title || '',
-          });
-        }
-      } catch { /* skip unreadable meta */ }
-    }
+  const url = canonicalizeUrl(rawUrl);
+  const duplicate = findDuplicateArticle(url);
+  if (duplicate) {
+    return res.status(409).json({
+      error: `Duplicate: this URL has already been saved as "${duplicate.title}".`,
+      duplicate: true,
+      filename: duplicate.filename,
+      title: duplicate.title,
+    });
   }
+
+  let source;
+  try {
+    source = await detectSource(url);
+  } catch (err) {
+    return res.status(400).json({ error: err.message });
+  }
+
+  const scrapeMap = {
+    patreon: scrapePatreon,
+    substack: scrapeSubstack,
+  };
 
   try {
-    const result = await scrapePatreon(url);
+    const result = await scrapeMap[source](url);
     res.json({
+      source,
       title: result.title,
       markdown: result.markdown,
       filename: result.filename,
@@ -73,7 +135,6 @@ app.post('/scrape', async (req, res) => {
   }
 });
 
-// GET /posts/:filename/read  — return markdown content for inline reading
 app.get('/posts/:filename/read', (req, res) => {
   const safeName = path.basename(req.params.filename);
   if (!safeName.endsWith('.md')) {
@@ -91,7 +152,6 @@ app.get('/posts/:filename/read', (req, res) => {
   }
 });
 
-// DELETE /posts/:filename  — remove .md, images folder, and meta sidecar
 app.delete('/posts/:filename', (req, res) => {
   const safeName = path.basename(req.params.filename);
   if (!safeName.endsWith('.md')) {
@@ -102,23 +162,22 @@ app.delete('/posts/:filename', (req, res) => {
 
   const mdPath = path.join(OUTPUT_DIR, safeName);
   if (fs.existsSync(mdPath)) {
-    try { fs.unlinkSync(mdPath); } catch (e) { errors.push(e.message); }
+    try { fs.unlinkSync(mdPath); } catch (err) { errors.push(err.message); }
   }
 
   const imgDir = path.join(OUTPUT_DIR, 'images', slug);
   if (fs.existsSync(imgDir)) {
-    try { fs.rmSync(imgDir, { recursive: true, force: true }); } catch (e) { errors.push(e.message); }
+    try { fs.rmSync(imgDir, { recursive: true, force: true }); } catch (err) { errors.push(err.message); }
   }
 
   const metaPath = path.join(OUTPUT_DIR, 'meta', `${slug}.json`);
   if (fs.existsSync(metaPath)) {
-    try { fs.unlinkSync(metaPath); } catch (e) { errors.push(e.message); }
+    try { fs.unlinkSync(metaPath); } catch (err) { errors.push(err.message); }
   }
 
   if (errors.length) return res.status(500).json({ error: errors.join('; ') });
   res.json({ deleted: safeName });
 });
-
 
 app.get('/posts/:filename', (req, res) => {
   const safeName = path.basename(req.params.filename);
@@ -132,26 +191,30 @@ app.get('/posts/:filename', (req, res) => {
   res.download(filepath, safeName);
 });
 
-// GET /posts  — list saved .md files
 app.get('/posts', (req, res) => {
   if (!fs.existsSync(OUTPUT_DIR)) return res.json([]);
   const metaDir = path.join(OUTPUT_DIR, 'meta');
   const files = fs
     .readdirSync(OUTPUT_DIR)
-    .filter((f) => f.endsWith('.md'))
-    .map((f) => {
-      const stat = fs.statSync(path.join(OUTPUT_DIR, f));
-      let author = '', postDate = '';
+    .filter((name) => name.endsWith('.md'))
+    .map((name) => {
+      const stat = fs.statSync(path.join(OUTPUT_DIR, name));
+      let author = '';
+      let postDate = '';
+      let sourceType = '';
       try {
-        const slug = f.replace(/\.md$/, '');
+        const slug = name.replace(/\.md$/, '');
         const metaPath = path.join(metaDir, `${slug}.json`);
         if (fs.existsSync(metaPath)) {
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-          author   = meta.author   || '';
+          author = meta.author || '';
           postDate = meta.postDate || '';
+          sourceType = meta.sourceType || '';
         }
-      } catch { /* ignore */ }
-      return { filename: f, size: stat.size, mtime: stat.mtime, author, postDate };
+      } catch {
+        // Ignore broken metadata and keep listing the file.
+      }
+      return { filename: name, size: stat.size, mtime: stat.mtime, author, postDate, sourceType };
     })
     .sort((a, b) => {
       const da = a.postDate ? new Date(a.postDate) : new Date(a.mtime);
@@ -162,5 +225,5 @@ app.get('/posts', (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Patreon Claw running at http://localhost:${PORT}`);
+  console.log(`P Creator Crawl running at http://localhost:${PORT}`);
 });

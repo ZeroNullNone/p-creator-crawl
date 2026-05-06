@@ -6,6 +6,7 @@ node_modules/
 
 # Authentication cookies — sensitive, never commit
 patreon-cookies.json
+substack-cookies.json
 
 # Scraped output — personal content, not for version control
 posts/
