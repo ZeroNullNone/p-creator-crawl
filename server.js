@@ -18,7 +18,15 @@ const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || 'posts');
 const SUPPORTED_SOURCES = new Set(['patreon', 'substack']);
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: false,
+  lastModified: false,
+  setHeaders: (res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  },
+}));
 app.use('/images', express.static(path.join(OUTPUT_DIR, 'images')));
 
 function canonicalizeUrl(value) {
@@ -146,7 +154,36 @@ app.get('/posts/:filename/read', (req, res) => {
   }
   try {
     const content = fs.readFileSync(filepath, 'utf-8');
-    res.json({ content, filename: safeName });
+    const slug = safeName.replace(/\.md$/, '');
+    const metaPath = path.join(OUTPUT_DIR, 'meta', `${slug}.json`);
+    let title = '';
+    let author = '';
+    let postDate = '';
+    let sourceType = '';
+    let sourceUrl = '';
+    let crawledAt = '';
+    if (fs.existsSync(metaPath)) {
+      try {
+        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+        title = meta.title || '';
+        author = meta.author || '';
+        postDate = meta.postDate || '';
+        sourceType = meta.sourceType || '';
+        sourceUrl = meta.source || '';
+        crawledAt = meta.crawledAt || '';
+      } catch {
+        // Ignore unreadable metadata
+      }
+    }
+    if (!sourceType && sourceUrl) {
+      if (sourceUrl.includes('patreon.com')) sourceType = 'patreon';
+      else if (sourceUrl.includes('substack.com') || sourceUrl.includes('/p/')) sourceType = 'substack';
+    }
+    if (!crawledAt) {
+      const stat = fs.statSync(filepath);
+      crawledAt = stat.birthtime || stat.ctime || stat.mtime;
+    }
+    res.json({ content, filename: safeName, title, author, postDate, sourceType, sourceUrl, crawledAt });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -199,27 +236,58 @@ app.get('/posts', (req, res) => {
     .filter((name) => name.endsWith('.md'))
     .map((name) => {
       const stat = fs.statSync(path.join(OUTPUT_DIR, name));
+      let title = '';
       let author = '';
       let postDate = '';
       let sourceType = '';
+      let sourceUrl = '';
+      let crawledAt = '';
       try {
         const slug = name.replace(/\.md$/, '');
         const metaPath = path.join(metaDir, `${slug}.json`);
         if (fs.existsSync(metaPath)) {
           const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          title = meta.title || '';
           author = meta.author || '';
           postDate = meta.postDate || '';
           sourceType = meta.sourceType || '';
+          sourceUrl = meta.source || '';
+          crawledAt = meta.crawledAt || '';
         }
       } catch {
         // Ignore broken metadata and keep listing the file.
       }
-      return { filename: name, size: stat.size, mtime: stat.mtime, author, postDate, sourceType };
+      if (!sourceType && sourceUrl) {
+        if (sourceUrl.includes('patreon.com')) sourceType = 'patreon';
+        else if (sourceUrl.includes('substack.com') || sourceUrl.includes('/p/')) sourceType = 'substack';
+      }
+      if (!crawledAt) {
+        crawledAt = stat.birthtime || stat.ctime || stat.mtime;
+      }
+      return {
+        filename: name,
+        title,
+        size: stat.size,
+        mtime: stat.mtime,
+        author,
+        postDate,
+        sourceType,
+        sourceUrl,
+        crawledAt,
+      };
     })
     .sort((a, b) => {
-      const da = a.postDate ? new Date(a.postDate) : new Date(a.mtime);
-      const db = b.postDate ? new Date(b.postDate) : new Date(b.mtime);
-      return db - da;
+      // Default sort by article publication date (postDate), newest first
+      const da = a.postDate ? new Date(a.postDate) : null;
+      const db = b.postDate ? new Date(b.postDate) : null;
+      const validA = da && !Number.isNaN(da.getTime());
+      const validB = db && !Number.isNaN(db.getTime());
+      if (validA && validB) return db - da;
+      if (validB) return 1;
+      if (validA) return -1;
+      const ca = new Date(a.crawledAt || a.mtime);
+      const cb = new Date(b.crawledAt || b.mtime);
+      return cb - ca;
     });
   res.json(files);
 });

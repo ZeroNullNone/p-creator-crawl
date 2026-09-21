@@ -169,12 +169,129 @@ function hasCookieForHost(cookies, host) {
 
 function extractPatreonPostId(url) {
   try {
-    const slug = new URL(url).pathname.split('/').filter(Boolean)[1] || '';
-    const m = slug.match(/(\d+)$/);
-    return m ? m[1] : null;
+    const parsed = new URL(url);
+    if (parsed.searchParams.has('post_id')) {
+      const p = parsed.searchParams.get('post_id');
+      if (/^\d+$/.test(p)) return p;
+    }
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const postsIdx = segments.indexOf('posts');
+    const target = postsIdx !== -1 && segments[postsIdx + 1]
+      ? segments[postsIdx + 1]
+      : segments[segments.length - 1] || '';
+    const m = target.match(/(\d+)$/);
+    if (m) return m[1];
+    const anyDigits = parsed.pathname.match(/(?:^|\D)(\d{6,})(?:\D|$)/);
+    return anyDigits ? anyDigits[1] : null;
   } catch {
     return null;
   }
+}
+
+function extractPatreonCreatorFromUrl(url) {
+  try {
+    const parsed = new URL(url);
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const postsIdx = segments.indexOf('posts');
+    if (postsIdx > 0) {
+      const creator = segments[postsIdx - 1];
+      if (!['c', 'm', 'api', 'home'].includes(creator.toLowerCase())) {
+        return creator;
+      }
+    }
+    return '';
+  } catch {
+    return '';
+  }
+}
+
+function proseMirrorToHtml(node) {
+  if (!node) return '';
+  if (node.type === 'text') {
+    let text = (node.text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+    if (node.marks && Array.isArray(node.marks)) {
+      for (const mark of node.marks) {
+        if (mark.type === 'bold') text = `<strong>${text}</strong>`;
+        else if (mark.type === 'italic') text = `<em>${text}</em>`;
+        else if (mark.type === 'code') text = `<code>${text}</code>`;
+        else if (mark.type === 'link') text = `<a href="${mark.attrs?.href || '#'}">${text}</a>`;
+        else if (mark.type === 'strike') text = `<s>${text}</s>`;
+        else if (mark.type === 'underline') text = `<u>${text}</u>`;
+      }
+    }
+    return text;
+  }
+  const innerHtml = (node.content || []).map(proseMirrorToHtml).join('');
+  switch (node.type) {
+    case 'doc':
+      return innerHtml;
+    case 'paragraph':
+      return `<p>${innerHtml || '<br>'}</p>`;
+    case 'heading': {
+      const level = Math.min(Math.max(node.attrs?.level || 2, 1), 6);
+      return `<h${level}>${innerHtml}</h${level}>`;
+    }
+    case 'blockquote':
+      return `<blockquote>${innerHtml}</blockquote>`;
+    case 'bullet_list':
+      return `<ul>${innerHtml}</ul>`;
+    case 'ordered_list':
+      return `<ol>${innerHtml}</ol>`;
+    case 'list_item':
+      return `<li>${innerHtml}</li>`;
+    case 'code_block':
+      return `<pre><code>${innerHtml}</code></pre>`;
+    case 'horizontal_rule':
+      return '<hr>';
+    case 'image': {
+      const src = node.attrs?.src || '';
+      return src ? `<figure><img src="${src}"></figure>` : '';
+    }
+    default:
+      return innerHtml;
+  }
+}
+
+async function fetchPatreonPostApi(postId, cookies) {
+  if (!postId) return null;
+  try {
+    const cookieHeader = (cookies || [])
+      .filter((c) => c?.name && c?.value !== undefined)
+      .map((c) => `${c.name}=${c.value}`)
+      .join('; ');
+    const res = await axios.get(`https://www.patreon.com/api/posts/${postId}`, {
+      headers: {
+        'User-Agent': USER_AGENT,
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+      },
+      timeout: 15000,
+    });
+    return res.data || null;
+  } catch (err) {
+    console.warn(`[scraper] direct Patreon API fetch failed: ${err.message}`);
+    return null;
+  }
+}
+
+function extractPatreonAuthorAndDate(apiJson) {
+  let author = '';
+  let postDate = '';
+  if (apiJson) {
+    const attrs = apiJson.data?.attributes || {};
+    if (attrs.published_at) postDate = attrs.published_at;
+    else if (attrs.created_at) postDate = attrs.created_at;
+    const included = apiJson.included || [];
+    const campaign = included.find((item) => item.type === 'campaign');
+    const user = included.find((item) => item.type === 'user');
+    author = campaign?.attributes?.name
+      || user?.attributes?.full_name
+      || user?.attributes?.vanity
+      || '';
+  }
+  return { author, postDate };
 }
 
 function extractApiMediaImages(json, existingContent = '') {
@@ -249,8 +366,14 @@ async function detectSource(articleUrl) {
 }
 
 function getChromeExecutablePath() {
-  const executablePath = process.env.CHROME_EXECUTABLE_PATH;
-  if (!executablePath || !fs.existsSync(executablePath)) {
+  let executablePath = process.env.CHROME_EXECUTABLE_PATH;
+  if (!executablePath) {
+    throw new Error('Chrome not found. Update CHROME_EXECUTABLE_PATH in .env');
+  }
+  if (executablePath.endsWith('.app') && fs.existsSync(path.join(executablePath, 'Contents/MacOS/Google Chrome'))) {
+    executablePath = path.join(executablePath, 'Contents/MacOS/Google Chrome');
+  }
+  if (!fs.existsSync(executablePath)) {
     throw new Error(`Chrome not found at: ${executablePath}\nUpdate CHROME_EXECUTABLE_PATH in .env`);
   }
   return executablePath;
@@ -432,8 +555,16 @@ function cleanMarkdown(bodyMd, author) {
   let cleaned = bodyMd;
   cleaned = cleaned.replace(/\n+#{1,3}\s*(related posts?|popular posts?|you might also like|more from\b)[^\n]*/i, '').trimEnd();
   if (author) {
-    const escapedAuthor = author.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+');
-    cleaned = cleaned.replace(new RegExp(`^#{1,4}\\s+${escapedAuthor}\\s*\\n+`, 'm'), '');
+    const pattern = author
+      .split('')
+      .map((c) => {
+        if (/[.*+?^${}()|[\]\\]/.test(c)) return `\\${c}`;
+        if (c === '_' || c === '*') return `\\\\?${c}`;
+        if (/\s/.test(c)) return '\\s+';
+        return c;
+      })
+      .join('');
+    cleaned = cleaned.replace(new RegExp(`^(?:#{1,4}|\\*\\*|__)?\\s*${pattern}\\s*(?:\\*\\*|__)?\\s*\\n+`, 'm'), '');
   }
   cleaned = cleaned.replace(/^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2},\s+\d{4}\s*\n+/m, '');
   return cleaned.trimStart();
@@ -532,13 +663,14 @@ async function finalizeArticle({
     if (!Number.isNaN(d.getTime())) fs.utimesSync(filepath, d, d);
   }
 
+  const crawledAt = new Date().toISOString();
   fs.writeFileSync(
     path.join(META_DIR, `${slug}.json`),
-    JSON.stringify({ title: finalTitle, author, postDate, source: articleUrl, sourceType }, null, 2),
+    JSON.stringify({ title: finalTitle, author, postDate, source: articleUrl, sourceType, crawledAt }, null, 2),
     'utf8'
   );
 
-  return { title: finalTitle, markdown, filename, filepath, source: sourceType };
+  return { title: finalTitle, markdown, filename, filepath, source: sourceType, author, postDate, crawledAt };
 }
 
 async function scrapePatreon(articleUrl) {
@@ -553,21 +685,31 @@ async function scrapePatreon(articleUrl) {
     );
   }
 
+  const postId = extractPatreonPostId(articleUrl);
+  let capturedApiJson = null;
+
+  if (postId) {
+    capturedApiJson = await fetchPatreonPostApi(postId, cookies);
+    if (capturedApiJson) {
+      console.log(`[scraper] direct Patreon API fetch succeeded for post ${postId}`);
+    }
+  }
+
   return withScrapePage(async (page) => {
     await seedCookies(page, 'patreon', articleUrl, cookies);
 
     let capturedPost = null;
-    let capturedApiJson = null;
     page.on('response', async (response) => {
       if (capturedPost) return;
       try {
         if (!/\/api\/posts\/\d+/.test(response.url())) return;
         const json = await response.json();
-        capturedApiJson = json;
+        if (!capturedApiJson) capturedApiJson = json;
         const attrs = json?.data?.attributes;
-        if (attrs?.content) {
-          const mediaHtml = extractApiMediaImages(json, attrs.content);
-          capturedPost = { title: attrs.title || '', content: attrs.content + mediaHtml };
+        const content = attrs?.content || (attrs?.content_json_string ? proseMirrorToHtml(JSON.parse(attrs.content_json_string)) : '');
+        if (content) {
+          const mediaHtml = extractApiMediaImages(json, content);
+          capturedPost = { title: attrs.title || '', content: content + mediaHtml };
         }
       } catch {
         // Ignore unrelated responses.
@@ -580,32 +722,42 @@ async function scrapePatreon(articleUrl) {
     let title = '';
     let bodyHtml = '';
 
-    if (capturedPost?.content) {
+    if (capturedApiJson) {
+      const attrs = capturedApiJson.data?.attributes;
+      const content = attrs?.content || (attrs?.content_json_string ? proseMirrorToHtml(JSON.parse(attrs.content_json_string)) : '');
+      if (content) {
+        const mediaHtml = extractApiMediaImages(capturedApiJson, content);
+        title = attrs.title || '';
+        bodyHtml = content + mediaHtml;
+        console.log('[scraper] strategy 1 (Patreon API) content prepared');
+      }
+    }
+
+    if (!bodyHtml && capturedPost?.content) {
       title = capturedPost.title;
       bodyHtml = capturedPost.content;
       console.log('[scraper] strategy 1 (Patreon API intercept) succeeded');
     }
 
-    if (!bodyHtml) {
-      const postId = extractPatreonPostId(articleUrl);
-      if (postId) {
-        const api = await page.evaluate(async (id) => {
-          try {
-            const r = await fetch(`/api/posts/${id}`, { credentials: 'include' });
-            if (!r.ok) return null;
-            const json = await r.json();
-            const attrs = json?.data?.attributes;
-            if (!attrs?.content) return null;
-            return { title: attrs.title || '', content: attrs.content, _json: json };
-          } catch {
-            return null;
-          }
-        }, postId);
-        if (api?.content) {
-          if (!capturedApiJson) capturedApiJson = api._json;
-          const mediaHtml = extractApiMediaImages(api._json, api.content);
-          title = api.title;
-          bodyHtml = api.content + mediaHtml;
+    if (!bodyHtml && postId) {
+      const api = await page.evaluate(async (id) => {
+        try {
+          const r = await fetch(`/api/posts/${id}`, { credentials: 'include' });
+          if (!r.ok) return null;
+          const json = await r.json();
+          return { _json: json };
+        } catch {
+          return null;
+        }
+      }, postId);
+      if (api?._json) {
+        if (!capturedApiJson) capturedApiJson = api._json;
+        const attrs = api._json.data?.attributes;
+        const content = attrs?.content || (attrs?.content_json_string ? proseMirrorToHtml(JSON.parse(attrs.content_json_string)) : '');
+        if (content) {
+          const mediaHtml = extractApiMediaImages(api._json, content);
+          title = attrs.title || '';
+          bodyHtml = content + mediaHtml;
           console.log('[scraper] strategy 2 (Patreon in-page API fetch) succeeded');
         }
       }
@@ -742,29 +894,19 @@ async function scrapePatreon(articleUrl) {
       }
     }
 
+    if (!title && capturedApiJson?.data?.attributes?.title) {
+      title = capturedApiJson.data.attributes.title;
+    }
     if (!title) title = stripSiteSuffix(await page.title(), 'patreon');
 
-    let author = '';
-    let postDate = '';
-
-    if (capturedApiJson) {
-      const attrs = capturedApiJson.data?.attributes || {};
-      if (attrs.published_at) postDate = attrs.published_at;
-      const included = capturedApiJson.included || [];
-      const campaign = included.find((item) => item.type === 'campaign');
-      const user = included.find((item) => item.type === 'user');
-      author = campaign?.attributes?.name
-        || user?.attributes?.full_name
-        || user?.attributes?.vanity
-        || '';
-    }
+    let { author, postDate } = extractPatreonAuthorAndDate(capturedApiJson);
 
     if (!author || !postDate) {
       const domMeta = await page.evaluate(() => {
         const authorEl = document.querySelector(
-          '[data-tag="creator-name"], [data-tag="creator-vanity-name"], [data-tag="post-author"], [data-tag="patron-name"]'
+          '[data-tag="creator-name"], [data-tag="creator-vanity-name"], [data-tag="post-author"], [data-tag="patron-name"], a[data-tag="creator-name"], a[href^="/"][data-tag*="creator"], a[data-tag="post-published-at"]'
         );
-        const timeEl = document.querySelector('time[datetime]');
+        const timeEl = document.querySelector('time[datetime], time');
         return {
           author: authorEl?.textContent?.trim() || '',
           postDate: timeEl?.getAttribute('datetime') || timeEl?.textContent?.trim() || '',
@@ -772,6 +914,10 @@ async function scrapePatreon(articleUrl) {
       });
       if (!author) author = domMeta.author;
       if (!postDate) postDate = domMeta.postDate;
+    }
+
+    if (!author) {
+      author = extractPatreonCreatorFromUrl(articleUrl);
     }
 
     if (author) {
