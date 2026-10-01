@@ -935,6 +935,10 @@ async function scrapePatreon(articleUrl) {
   });
 }
 
+function subscriptionError(message) {
+  return Object.assign(new Error(message), { code: 'AUTH_REQUIRED' });
+}
+
 async function scrapeSubstack(articleUrl) {
   const cookies = loadCookies('substack');
   const articleHost = new URL(articleUrl).hostname.toLowerCase();
@@ -1111,7 +1115,7 @@ async function scrapeSubstack(articleUrl) {
     if (!bodyHtml || (extracted.isPaidPost && extracted.requiresLogin)) {
       if (extracted.requiresLogin) {
         if (!cookies?.length) {
-          throw new Error(
+          throw subscriptionError(
             'This Substack article appears to require a logged-in subscription.\n\n'
             + 'Export your cookies:\n'
             + '  1. Open the article while logged into Substack in Chrome\n'
@@ -1121,27 +1125,27 @@ async function scrapeSubstack(articleUrl) {
         }
 
         if (!hasSubstackDomainCookie) {
-          throw new Error(
+          throw subscriptionError(
             'Your saved Substack cookies are missing the main Substack login session.\n\n'
             + 'Export cookies from https://substack.com while logged in, save them in the Substack panel, then export again from the exact article domain and save again. The app will merge both sets.'
           );
         }
 
         if (!hasArticleDomainCookie) {
-          throw new Error(
+          throw subscriptionError(
             `Your saved Substack cookies do not include the article domain (${articleHost}).\n\n`
             + 'Export cookies from the exact article domain while logged in, save them in the Substack panel, and keep the existing Substack.com cookies there too.'
           );
         }
 
-        throw new Error(
+        throw subscriptionError(
           'This Substack article still shows a login or subscriber wall.\n\n'
           + 'Re-export cookies from both https://substack.com and the exact article domain, then save both exports into the Substack panel. The app will merge them.'
         );
       }
 
       if (extracted.isPaidPost && extracted.bodyHtml && !extracted.bootstrapBodyHtml) {
-        throw new Error(
+        throw subscriptionError(
           'This Substack article only exposed the preview, not the full paid content.\n\n'
           + 'Save cookies from both https://substack.com and the exact article domain in the Substack panel so the merged cookie set includes the full subscriber session.'
         );
@@ -1156,7 +1160,7 @@ async function scrapeSubstack(articleUrl) {
 
     ({ html: bodyHtml, markdownReplacements } = await prepareSubstackMathForMarkdown(page, bodyHtml));
 
-    return finalizeArticle({
+    const result = await finalizeArticle({
       title,
       bodyHtml,
       author,
@@ -1165,6 +1169,7 @@ async function scrapeSubstack(articleUrl) {
       sourceType: 'substack',
       markdownReplacements,
     });
+    return { ...result, subscriptionVerified: extracted.isPaidPost && canUseBootstrapBody };
   });
 }
 

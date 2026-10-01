@@ -11,10 +11,12 @@ const {
   saveCookies,
   loadCookies,
 } = require('./scraper');
+const { createBatchService } = require('./batch-crawl');
 
+function createApp({ outputDir = path.resolve(process.env.OUTPUT_DIR || 'posts'), batchService } = {}) {
 const app = express();
-const PORT = parseInt(process.env.PORT || '3000', 10);
-const OUTPUT_DIR = path.resolve(process.env.OUTPUT_DIR || 'posts');
+const OUTPUT_DIR = outputDir;
+const batches = batchService || createBatchService({ outputDir: OUTPUT_DIR });
 const SUPPORTED_SOURCES = new Set(['patreon', 'substack']);
 
 app.use(express.json());
@@ -100,11 +102,33 @@ app.get('/cookies/status', (req, res) => {
   res.json({ source, hasCookies: !!cookies, count: cookies ? cookies.length : 0 });
 });
 
+function batchRoute(handler) {
+  return (req, res) => {
+    try { res.json(handler(req)); }
+    catch (error) { res.status(error.status || 400).json({ error: error.message }); }
+  };
+}
+app.get('/batches/state', batchRoute(() => batches.state()));
+app.post('/batches/sources', batchRoute(req => batches.saveSource(req.body)));
+app.put('/batches/sources/:id', batchRoute(req => batches.saveSource(req.body, req.params.id)));
+app.delete('/batches/sources/:id', batchRoute(req => {
+  batches.removeSource(req.params.id); return { removed: req.params.id };
+}));
+app.post('/batches/runs', batchRoute(req => batches.start(req.body)));
+app.get('/batches/runs/:id', batchRoute(req => batches.get(req.params.id)));
+app.post('/batches/runs/:id/stop', batchRoute(req => batches.stop(req.params.id)));
+app.post('/batches/runs/:id/retry', batchRoute(req => batches.resume(req.params.id, req.body.action)));
+
 app.post('/scrape', async (req, res) => {
   const rawUrl = typeof req.body.url === 'string' ? req.body.url.trim() : '';
   if (!rawUrl) {
     return res.status(400).json({ error: 'Please provide a Patreon or Substack article URL.' });
   }
+
+  let release;
+  try { release = batches.acquireSingle(); }
+  catch (err) { return res.status(err.status || 409).json({ error: err.message }); }
+  try {
 
   const url = canonicalizeUrl(rawUrl);
   const duplicate = findDuplicateArticle(url);
@@ -141,6 +165,7 @@ app.post('/scrape', async (req, res) => {
     console.error('[scrape error]', err.message);
     res.status(500).json({ error: err.message });
   }
+  } finally { release(); }
 });
 
 app.get('/posts/:filename/read', (req, res) => {
@@ -194,6 +219,8 @@ app.delete('/posts/:filename', (req, res) => {
   if (!safeName.endsWith('.md')) {
     return res.status(400).json({ error: 'Only .md files can be deleted.' });
   }
+  try { batches.assertCanDelete(safeName); }
+  catch (err) { return res.status(err.status || 409).json({ error: err.message }); }
   const slug = safeName.replace(/\.md$/, '');
   const errors = [];
 
@@ -292,6 +319,11 @@ app.get('/posts', (req, res) => {
   res.json(files);
 });
 
-app.listen(PORT, () => {
-  console.log(`P Creator Crawl running at http://localhost:${PORT}`);
-});
+return app;
+}
+
+if (require.main === module) {
+  const port = parseInt(process.env.PORT || '3000', 10);
+  createApp().listen(port, () => console.log(`P Creator Crawl running at http://localhost:${port}`));
+}
+module.exports = { createApp };

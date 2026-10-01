@@ -36,6 +36,7 @@ The MIT license on this code covers the software itself, not any content scraped
 - 📝 Converts HTML posts to clean Markdown (GFM)
 - 🖼️ Downloads and localises embedded images
 - 📚 Built-in library to browse, read, and download saved posts
+- 📋 Batch Crawl page with saved sources, duplicate skipping, progress and resumable runs
 - 🌏 Handles mixed-language titles (Chinese, Japanese, etc.) in filenames
 
 ## Prerequisites
@@ -99,6 +100,67 @@ P Creator Crawl uses **cookie injection**. Patreon and Substack cookies are stor
 2. Paste a Patreon post URL (e.g. `https://www.patreon.com/posts/some-post-123456`) or a direct Substack article URL (including custom-domain Substack posts such as `https://www.vertoxquant.com/p/backtests-lie`)
 3. Click **Scrape** — the article is converted and saved to the `posts/` folder
 4. Switch to the **Library** tab to browse, read inline, or download saved posts
+
+### Batch Crawl page
+
+Open **Batch Crawl** (`/#batch`) and select the preconfigured **VertoxQuant** source.
+**Check list** scans the archive and previews missing articles without downloading
+article content. **Start crawl** scans and saves automatically, oldest first, using
+your existing cookies. Choose all missing articles or only the five oldest articles.
+The five are selected before duplicate checks; a saved article is not replaced by a
+newer one. Duplicate checks require nonempty Markdown and matching source metadata,
+so deleting an article makes it eligible for a later crawl.
+
+The page shows discovered, saved, skipped, failed and pending-image counts, per-article
+results and run history. Temporary article failures get one automatic retry. Login
+failures pause the run for updated cookies; **Resume crawl** / **Retry failed** continue
+the same selection. **Repair images** retries remote images without re-downloading the
+article text. Unavailable local image files remain warnings when their original URL
+is no longer known. Cookie presence alone does not verify paid access.
+
+Runs continue on the server when you switch tabs or close the browser. Refreshing
+reconnects to progress. **Stop after current article** finishes the current article
+(including its image attempts); during a scan it stops after the current archive
+request. A server restart marks unfinished runs **Interrupted**; resume them manually.
+Keep one server process per output directory and do not run the CLI crawler alongside
+a web crawl. The web server allows one Claw or batch operation at a time, while the
+Library remains readable. A currently saving/repairing article cannot be deleted.
+
+**+ Add** and **Edit source** manage saved archive URLs. Only implemented crawler types
+appear in the selector. Currently this is **Substack Archive**, verified on VertoxQuant;
+other Substack publications are checked when scanned. Source settings live in
+`posts/batches/sources.json`, with atomic run reports alongside them (or under your
+configured `OUTPUT_DIR`). Removing a source keeps articles and reports. Reports store
+metadata and results, not article bodies or cookies; deleted articles have no Read link.
+Existing CLI run reports also appear in history.
+
+To add a coded crawler, register it in `crawl-types.js`: provide `label`, `description`,
+`placeholder`, `cookieSource`, `validateUrl(url)`, `scan(url, {onProgress, shouldStop})`,
+and `scrape(articleUrl)`. Scan returns `{title, url, postDate}` articles; scrape uses the
+existing persistence format and returns `{filename}` (optionally `subscriptionVerified`
+only after verified paid access). Keep scans read-only and honor `shouldStop` between
+requests. The existing source form and runner then expose the new type automatically.
+
+### Small archive batch from the terminal
+
+From the project directory, save the oldest five articles of a Substack publication:
+
+```bash
+node crawl-archive.js https://www.vertoxquant.com/archive --limit 5
+```
+
+The script lists all archive pages, sorts by publication date, then processes only the
+oldest `--limit` articles sequentially using your saved Substack cookies. Articles with
+existing Markdown and matching source metadata are skipped; skips do not cause newer
+articles to be added to the selection. Rerun the same command to retry missing articles.
+Results appear in the existing Library, with a saved/skipped/failed report under
+`posts/batches/` (or your configured `OUTPUT_DIR`). Article requests are spaced by two
+seconds. Image downloads use the existing scraper; failed images can remain remote links.
+
+### Verification
+
+Run `npm test`. Tests use temporary output directories, simulated article downloads and
+a temporary loopback HTTP server; they do not crawl live sites or change saved cookies.
 
 ---
 

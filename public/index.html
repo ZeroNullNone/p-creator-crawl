@@ -1694,6 +1694,7 @@
 
     .hidden { display: none !important; }
   </style>
+  <link rel="stylesheet" href="/batch.css" />
 </head>
 <body>
 
@@ -1736,6 +1737,10 @@
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1-2.5-2.5Z"/><path d="M6 6h10M6 10h10"/></svg>
           <span>Library</span>
           <span class="nav-count" id="headerPostCount">0</span>
+        </button>
+        <button class="nav-tab" id="tabNavBatch" onclick="navigateTo('#batch')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          <span>Batch Crawl</span>
         </button>
       </nav>
 
@@ -1862,6 +1867,50 @@
 
         </div>
       </div>
+    </section>
+
+    <section id="viewBatch" class="view-pane" aria-label="Batch Crawl">
+      <div class="batch-scroll">
+        <div class="batch-page">
+          <div class="batch-heading"><div><h1>Batch Crawl</h1><p>Save a publication once. Come back for its next articles.</p></div><span class="batch-order">Oldest first · Duplicates skipped</span></div>
+          <p id="batchError" class="batch-error" role="alert" hidden></p>
+          <p id="batchBusy" class="batch-notice" role="status" hidden></p>
+          <div class="batch-layout">
+            <aside class="batch-sidebar" aria-label="Saved crawl sources">
+              <div class="batch-section-title"><h2>Saved sources</h2><button type="button" id="batchAddSource" class="batch-link">+ Add</button></div>
+              <div id="batchSources"><p class="batch-muted">Loading sources…</p></div>
+              <p class="batch-sidebar-note">Each source uses a supported list crawler. New crawler types appear here after they are implemented.</p>
+            </aside>
+            <div class="batch-main">
+              <section id="batchSourcePanel" class="batch-source-panel" aria-label="Selected source" hidden>
+                <div class="batch-section-title"><div><span id="batchSourceType" class="batch-eyebrow"></span><h2 id="batchSourceName"></h2></div><button id="batchEditSource" type="button" class="batch-link">Edit source</button></div>
+                <a id="batchSourceUrl" target="_blank" rel="noopener noreferrer" class="batch-url"></a>
+                <div class="batch-cookie-line"><span id="batchCookieStatus"></span><button id="batchCookies" type="button" class="batch-link">Manage cookies</button></div>
+                <div class="batch-controls">
+                  <label for="batchScope">Articles<select id="batchScope"><option value="all">All missing articles</option><option value="oldest5">Oldest 5 articles</option></select></label>
+                  <div class="batch-buttons"><button id="batchCheck" type="button" class="batch-button">Check list</button><button id="batchStart" type="button" class="batch-button primary">Start crawl</button></div>
+                </div>
+                <p id="batchScopeHint" class="batch-muted">Scans the full archive and saves articles missing from your Library.</p>
+              </section>
+              <p id="batchNoSource" class="batch-empty" hidden>Add a source to start collecting its articles.</p>
+              <section id="batchRunPanel" class="batch-run-panel" aria-label="Crawl progress"></section>
+              <section class="batch-history" aria-label="Run history"><div class="batch-section-title"><h2>Run history</h2><span class="batch-muted">Saved on this server</span></div><div id="batchHistory"></div></section>
+            </div>
+          </div>
+        </div>
+      </div>
+      <dialog id="batchSourceDialog" class="batch-dialog" aria-labelledby="batchDialogTitle">
+        <form id="batchSourceForm">
+          <div class="batch-section-title"><h2 id="batchDialogTitle">Add source</h2><button type="button" id="batchCloseDialog" class="batch-link" aria-label="Close source editor">Close</button></div>
+          <label for="batchInputName">Name<input id="batchInputName" required maxlength="100" placeholder="Publication name" /></label>
+          <label for="batchInputType">Crawler type<select id="batchInputType" required></select></label>
+          <p id="batchTypeDescription" class="batch-muted"></p>
+          <label for="batchInputUrl">Archive URL<input id="batchInputUrl" type="url" required /></label>
+          <p class="batch-muted">Only implemented crawler types are available. Removing a source keeps its articles and run history.</p>
+          <p id="batchFormError" class="batch-error" role="alert" hidden></p>
+          <div class="batch-dialog-actions"><button id="batchRemoveSource" type="button" class="batch-link danger" hidden>Remove source</button><button type="submit" class="batch-button primary">Save source</button></div>
+        </form>
+      </dialog>
     </section>
 
     <!-- ── View: Library & Reader ── -->
@@ -2256,6 +2305,7 @@
       }
       if (hash === '#library') return { tab: 'library', filename: null };
       if (hash === '#claw') return { tab: 'claw', filename: null };
+      if (hash === '#batch') return { tab: 'batch', filename: null };
 
       // If no hash in URL, resume from last saved session
       const saved = getStorage('pcc_session', null);
@@ -2283,6 +2333,9 @@
       document.getElementById('tabNavLibrary').classList.toggle('active', tab === 'library');
       document.getElementById('viewClaw').classList.toggle('active', tab === 'claw');
       document.getElementById('viewLibrary').classList.toggle('active', tab === 'library');
+      document.getElementById('tabNavBatch').classList.toggle('active', tab === 'batch');
+      document.getElementById('viewBatch').classList.toggle('active', tab === 'batch');
+      if (tab === 'batch') window.batchPage?.enter();
 
       if (tab === 'library') {
         if (filename && filename !== state.selectedFilename) {
@@ -3175,8 +3228,10 @@
 
     /* ── Keyboard Shortcuts ─────────────────── */
     window.addEventListener('keydown', (e) => {
+      // Native source dialogs and selects own their keyboard navigation.
+      if (document.querySelector('dialog[open]')) return;
       // Don't trigger shortcuts inside text inputs
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) {
         if (e.key === 'Escape') {
           document.activeElement.blur();
         }
@@ -3201,7 +3256,7 @@
           return;
         }
         // If in reader, resume back to list
-        if (state.selectedFilename) {
+        if (state.activeTab === 'library' && state.selectedFilename) {
           resumeBackToList();
         }
         return;
@@ -3216,21 +3271,21 @@
       }
 
       // Keyboard navigation between posts: j/k or ArrowDown/ArrowUp
-      if (e.key === 'j' || e.key === 'ArrowDown') {
+      if (state.activeTab === 'library' && (e.key === 'j' || e.key === 'ArrowDown')) {
         e.preventDefault();
         stepSelectedPost(1);
-      } else if (e.key === 'k' || e.key === 'ArrowUp') {
+      } else if (state.activeTab === 'library' && (e.key === 'k' || e.key === 'ArrowUp')) {
         e.preventDefault();
         stepSelectedPost(-1);
       }
 
       // Copy markdown
-      if (e.key === 'c' && state.selectedFilename) {
+      if (e.key === 'c' && state.activeTab === 'library' && state.selectedFilename) {
         copyCurrentPostMarkdown();
       }
 
       // Download .md
-      if (e.key === 'd' && state.selectedFilename) {
+      if (e.key === 'd' && state.activeTab === 'library' && state.selectedFilename) {
         document.getElementById('btnDlPost').click();
       }
 
@@ -3285,5 +3340,6 @@
     })();
 
   </script>
+  <script src="/batch.js"></script>
 </body>
 </html>
