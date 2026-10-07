@@ -826,6 +826,7 @@
     }
     .search-input {
       flex: 1;
+      min-width: 0;
       background: transparent;
       border: none;
       color: var(--text-1);
@@ -834,6 +835,33 @@
       padding: 6px 0;
     }
     .search-input::placeholder { color: var(--text-3); }
+    .search-input::-webkit-search-cancel-button { -webkit-appearance: none; }
+    .search-clear-btn {
+      background: none;
+      border: none;
+      color: var(--text-3);
+      cursor: pointer;
+      font-size: 12px;
+      min-width: 24px;
+      min-height: 24px;
+    }
+    .content-search-feedback {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--text-3);
+      font-size: 11px;
+    }
+    .content-search-feedback.error { color: var(--red); }
+    .content-search-retry {
+      background: none;
+      border: none;
+      color: var(--accent);
+      font: inherit;
+      cursor: pointer;
+      text-decoration: underline;
+    }
     .kbd-hint {
       font-family: var(--font-mono);
       font-size: 10.5px;
@@ -944,6 +972,21 @@
     .post-card.active .post-card-title {
       color: var(--accent);
       font-weight: 600;
+    }
+    .post-card-snippet {
+      margin: 0;
+      color: var(--text-3);
+      font-size: 12px;
+      line-height: 1.5;
+      overflow-wrap: anywhere;
+      display: -webkit-box;
+      -webkit-line-clamp: 3;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .post-card-snippet mark {
+      color: var(--accent);
+      background: var(--accent-bg);
     }
 
     .post-card-bottom {
@@ -1922,9 +1965,18 @@
           <div class="sidebar-header">
             <div class="sidebar-search-row">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-3);"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-              <input id="librarySearchInput" class="search-input" type="search" placeholder="Search by title, author…" />
-              <button id="clearSearchBtn" class="hidden" onclick="clearSearch()" style="background:none; border:none; color:var(--text-3); cursor:pointer; font-size:12px;">✕</button>
+              <input id="librarySearchInput" class="search-input" type="search" placeholder="Search by title, author…" aria-label="Search by title or author" />
+              <button id="clearSearchBtn" class="search-clear-btn hidden" type="button" onclick="clearSearch()" aria-label="Clear title and author search">✕</button>
               <span class="kbd-hint">/</span>
+            </div>
+            <div class="sidebar-search-row">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="color: var(--text-3);"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h6"/></svg>
+              <input id="contentSearchInput" class="search-input" type="search" maxlength="200" placeholder="Search article content…" aria-label="Search article content" />
+              <button id="clearContentSearchBtn" class="search-clear-btn hidden" type="button" onclick="clearContentSearch()" aria-label="Clear content search">✕</button>
+            </div>
+            <div id="contentSearchFeedback" class="content-search-feedback hidden">
+              <span id="contentSearchStatus" role="status" aria-live="polite"></span>
+              <button id="contentSearchRetryBtn" class="content-search-retry hidden" type="button" onclick="queueContentSearch(true)">Retry</button>
             </div>
 
             <div class="filter-bar">
@@ -2191,6 +2243,9 @@
       selectedFilename: null,     // Currently open post filename
       currentPostData: null,      // Full fetched content and metadata
       searchQuery: '',
+      contentQuery: '',
+      contentMatches: new Map(),
+      contentSearchStatus: 'idle',
       filter: 'all',              // 'all' | 'patreon' | 'substack' | 'reading' | 'completed'
       sort: 'date-desc',
       fontSizeIndex: 1,           // 0: 15px, 1: 16.5px, 2: 18px
@@ -2728,7 +2783,8 @@
         const data = await res.json();
         state.posts = data;
         document.getElementById('headerPostCount').textContent = data.length;
-        renderPostList();
+        if (state.contentQuery.trim()) queueContentSearch(true);
+        else renderPostList();
 
         // Check if route has an open post
         const { filename } = parseRoute();
@@ -2741,6 +2797,20 @@
     function renderPostList() {
       const stream = document.getElementById('postsStream');
       const q = state.searchQuery.toLowerCase().trim();
+      const contentQuery = state.contentQuery.trim();
+      const pending = contentQuery && state.contentSearchStatus === 'loading';
+      const failed = contentQuery && state.contentSearchStatus === 'error';
+      const feedback = document.getElementById('contentSearchFeedback');
+      feedback.classList.toggle('hidden', !contentQuery);
+      feedback.classList.toggle('error', !!failed);
+      document.getElementById('contentSearchRetryBtn').classList.toggle('hidden', !failed);
+      stream.setAttribute('aria-busy', pending ? 'true' : 'false');
+
+      if (pending || failed) {
+        document.getElementById('contentSearchStatus').textContent = pending ? 'Searching content…' : 'Content search failed.';
+        stream.innerHTML = `<div style="padding:32px 16px; text-align:center; color:var(--text-3); font-size:13px;">${pending ? 'Searching article content…' : 'Retry or clear the content search to continue.'}</div>`;
+        return;
+      }
 
       let list = state.posts.filter(p => {
         // Filter by platform / reading status
@@ -2759,8 +2829,12 @@
           const matchAuthor = (p.author || '').toLowerCase().includes(q);
           if (!matchTitle && !matchFile && !matchAuthor) return false;
         }
+        if (contentQuery && !state.contentMatches.has(p.filename)) return false;
         return true;
       });
+
+      document.getElementById('contentSearchStatus').textContent = contentQuery
+        ? `${list.length} matching ${list.length === 1 ? 'article' : 'articles'}` : '';
 
       // Sort
       list.sort((a, b) => {
@@ -2839,6 +2913,7 @@
             <div class="post-card-top">
               <span class="post-card-title">${escapeHtmlText(title)}</span>
             </div>
+            ${contentQuery ? `<p class="post-card-snippet">${renderContentSnippet(state.contentMatches.get(p.filename).snippet)}</p>` : ''}
             <div class="post-card-bottom">
               <div class="post-card-tags">
                 <span class="source-tag ${srcType}">${srcType || 'post'}</span>
@@ -2880,6 +2955,67 @@
       clearSearchBtn.classList.add('hidden');
       renderPostList();
       searchInput.focus();
+    }
+
+    const contentSearchInput = document.getElementById('contentSearchInput');
+    const clearContentSearchBtn = document.getElementById('clearContentSearchBtn');
+    let contentSearchTimer;
+    let contentSearchController;
+    let contentSearchVersion = 0;
+
+    function renderContentSnippet(snippet) {
+      return `${escapeHtmlText(snippet.before)}<mark>${escapeHtmlText(snippet.match)}</mark>${escapeHtmlText(snippet.after)}`;
+    }
+
+    function queueContentSearch(immediate = false) {
+      clearTimeout(contentSearchTimer);
+      contentSearchController?.abort();
+      const version = ++contentSearchVersion;
+      state.contentQuery = contentSearchInput.value;
+      state.contentMatches = new Map();
+      const query = state.contentQuery.trim();
+      clearContentSearchBtn.classList.toggle('hidden', !state.contentQuery);
+      state.contentSearchStatus = query ? 'loading' : 'idle';
+      renderPostList();
+      if (!query) return;
+      if (immediate) runContentSearch(query, version);
+      else contentSearchTimer = setTimeout(() => runContentSearch(query, version), 300);
+    }
+
+    async function runContentSearch(query, version) {
+      const controller = new AbortController();
+      contentSearchController = controller;
+      try {
+        const response = await fetch(`/posts/search?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+        if (!response.ok) throw new Error('Content search failed.');
+        const data = await response.json();
+        if (version !== contentSearchVersion) return;
+        state.contentMatches = new Map(data.matches.map(match => [match.filename, match]));
+        state.contentSearchStatus = 'ready';
+      } catch (error) {
+        if (version !== contentSearchVersion || error.name === 'AbortError') return;
+        state.contentSearchStatus = 'error';
+      }
+      if (version === contentSearchVersion) renderPostList();
+    }
+
+    contentSearchInput.addEventListener('compositionstart', () => {
+      clearTimeout(contentSearchTimer);
+      contentSearchController?.abort();
+      contentSearchVersion += 1;
+    });
+    contentSearchInput.addEventListener('compositionend', () => queueContentSearch());
+    contentSearchInput.addEventListener('input', event => {
+      if (!event.isComposing) queueContentSearch();
+    });
+    contentSearchInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && !event.isComposing) queueContentSearch(true);
+    });
+
+    function clearContentSearch() {
+      contentSearchInput.value = '';
+      queueContentSearch();
+      contentSearchInput.focus();
     }
 
     /* ── Reader Panel & Resuming Scroll Position ── */

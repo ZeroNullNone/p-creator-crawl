@@ -36,6 +36,7 @@ The MIT license on this code covers the software itself, not any content scraped
 - 📝 Converts HTML posts to clean Markdown (GFM)
 - 🖼️ Downloads and localises embedded images
 - 📚 Built-in library to browse, read, and download saved posts
+- 🔍 Separate title/author and article-content search, with highlighted matching excerpts
 - 📋 Batch Crawl page with saved sources, duplicate skipping, progress and resumable runs
 - 🌏 Handles mixed-language titles (Chinese, Japanese, etc.) in filenames
 
@@ -100,6 +101,31 @@ P Creator Crawl uses **cookie injection**. Patreon and Substack cookies are stor
 2. Paste a Patreon post URL (e.g. `https://www.patreon.com/posts/some-post-123456`) or a direct Substack article URL (including custom-domain Substack posts such as `https://www.vertoxquant.com/p/backtests-lie`)
 3. Click **Scrape** — the article is converted and saved to the `posts/` folder
 4. Switch to the **Library** tab to browse, read inline, or download saved posts
+
+### Search saved articles
+
+The Library has two independent search boxes. **Search by title, author** keeps the
+existing title, author and filename matching. **Search article content** searches
+the saved body text, including code and tables, and displays a highlighted excerpt.
+Use both boxes together to require both matches; platform/status filters and sorting
+still apply. Content queries are case-insensitive phrases and support Chinese short
+words. Spaces, hyphens, Unicode dashes and underscores between phrase terms are
+interchangeable: `walk forward` also finds `walk-forward-test`, `walk_forward` and
+`walk–forward`. Words must still appear next to each other and in the same order;
+spelling differences such as `walk-farward` are not corrected. Excerpts highlight the
+actual matched spelling. Other punctuation, including `C++`, stays literal, as do
+leading/trailing separators such as the minus sign in `-1`. Line breaks and repeated
+spaces are treated as one space.
+Press Enter to search immediately, or pause typing for 300 ms. Each box has its own
+clear button; failed content searches show a Retry action.
+
+Existing articles are automatically cached in server memory on startup. Only changed
+Markdown bodies are re-read; every content search checks for new, modified and deleted
+files, including external file changes. Images, link destinations, the generated title
+and source footer are excluded. The browser receives matching excerpts rather than
+all article bodies. The cache is rebuilt after restart and requires no database or
+re-crawling. After adding or changing files externally, refresh the Library to reload
+its article list before searching.
 
 ### Batch Crawl page
 

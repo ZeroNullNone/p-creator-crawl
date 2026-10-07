@@ -12,11 +12,14 @@ const {
   loadCookies,
 } = require('./scraper');
 const { createBatchService } = require('./batch-crawl');
+const { createContentSearch } = require('./content-search');
 
 function createApp({ outputDir = path.resolve(process.env.OUTPUT_DIR || 'posts'), batchService } = {}) {
 const app = express();
 const OUTPUT_DIR = outputDir;
 const batches = batchService || createBatchService({ outputDir: OUTPUT_DIR });
+const contentSearch = createContentSearch({ outputDir: OUTPUT_DIR });
+contentSearch.warm().catch(error => console.error('[content search cache]', error.message));
 const SUPPORTED_SOURCES = new Set(['patreon', 'substack']);
 
 app.use(express.json());
@@ -166,6 +169,16 @@ app.post('/scrape', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
   } finally { release(); }
+});
+
+app.get('/posts/search', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try { res.json({ matches: await contentSearch.search(req.query.q) }); }
+  catch (error) {
+    if (error.status === 400) return res.status(400).json({ error: error.message });
+    console.error('[content search]', error.message);
+    res.status(500).json({ error: 'Could not search article content. Please retry.' });
+  }
 });
 
 app.get('/posts/:filename/read', (req, res) => {
